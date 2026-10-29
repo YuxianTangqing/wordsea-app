@@ -1,0 +1,15 @@
+<resources>
+    <!-- M-APP14：API 27+ 导航栏深色图标（米白栏上可读）；同名样式覆盖 values/ 版，须完整重复 -->
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@drawable/splashscreen_window</item>
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+
+    <style name="Theme.App.SplashScreen" parent="AppTheme">
+        <item name="android:windowBackground">@drawable/splashscreen_window</item>
+    </style>
+</resources>

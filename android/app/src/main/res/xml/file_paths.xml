@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- M-APP15 壳内自更新：只放开 app 私有外部目录的 Download/ 子目录（DownloadManager
+     更新包目的地——私有目录零权限全 API 通吃），给系统安装器临时读授权；其余存储不暴露 -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-files-path name="shell_updates" path="Download/" />
+</paths>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 品牌四色（App.tsx 原值：米白纸底/墨色/次要文字/大地棕）＋ UI 派生色（M-APP14） -->
+    <color name="splashscreen_background">#F5F0E6</color>
+    <color name="iconBackground">#F5F0E6</color>
+    <color name="colorPrimary">#023c69</color>
+    <color name="paper">#F5F0E6</color>
+    <color name="ink">#463E33</color>
+    <color name="inkSoft">#7A6F5E</color>
+    <color name="brand">#88653F</color>
+    <!-- rgba(136,101,63,.15)=进度条底 -->
+    <color name="brandTrack">#2688653F</color>
+    <!-- rgba(136,101,63,.45)=次级按钮描边 -->
+    <color name="brandStroke">#7388653F</color>
+    <!-- 外跳横幅底（#EFE7D8）与上边线 rgba(136,101,63,.35) -->
+    <color name="bannerBg">#EFE7D8</color>
+    <color name="bannerLine">#5988653F</color>
+</resources>

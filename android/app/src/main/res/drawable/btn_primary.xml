@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 错误页主按钮「重新加载」：brand 底白字圆角胶囊（App.tsx 同款） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/brand" />
+    <corners android:radius="999dp" />
+</shape>

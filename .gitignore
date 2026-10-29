@@ -1,0 +1,16 @@
+# Gradle 产物
+.gradle/
+build/
+local.properties
+.kotlin/
+
+# 签名（永不进 git——真钥匙在仓外 APP签名钥匙\，网盘+U盘双备份）
+*.jks
+*.keystore
+keystore.properties
+credentials.json
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store

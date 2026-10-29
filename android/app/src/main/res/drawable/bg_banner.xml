@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 外跳诊断横幅底：#EFE7D8 底 + 1dp 大地棕上边线（App.tsx 同款） -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:height="1dp" android:gravity="top">
+        <shape>
+            <solid android:color="@color/bannerLine" />
+        </shape>
+    </item>
+    <item android:top="1dp">
+        <shape>
+            <solid android:color="@color/bannerBg" />
+        </shape>
+    </item>
+</layer-list>

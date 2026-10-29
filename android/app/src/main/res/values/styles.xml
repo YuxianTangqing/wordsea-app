@@ -1,0 +1,16 @@
+<resources>
+    <!-- M-APP14：沿用 RN 时代主题（AppCompat DayNight）+ 启动屏四层米白连续方案；
+         删 editTextBackground（RN 专用）；加 windowLightStatusBar（米白栏上深色图标，
+         RN 时代由 expo-status-bar 运行时设置，原生须主题声明） -->
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@drawable/splashscreen_window</item>
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+    <style name="Theme.App.SplashScreen" parent="AppTheme">
+        <item name="android:windowBackground">@drawable/splashscreen_window</item>
+    </style>
+</resources>

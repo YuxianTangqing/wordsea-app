@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">四海书盟</string>
+    <!-- M-APP14：文案逐字取自 App.tsx（1:1 复刻红线） -->
+    <string name="loading_text">正在连接四海书盟…</string>
+    <string name="error_icon">⛵</string>
+    <string name="error_title">网络开小差了</string>
+    <string name="error_hint">请检查网络连接后重试</string>
+    <string name="error_retry">重新加载</string>
+    <string name="error_back">返回上一页</string>
+    <string name="error_home">回首页</string>
+    <string name="back_exit_toast">再按一次退出四海书盟</string>
+    <string name="banner_opened_prefix">刚在浏览器打开了：</string>
+    <string name="banner_close">✕</string>
+
+    <!-- M-APP15 壳内自更新 -->
+    <string name="download_already_latest">已是最新版本 v%1$s</string>
+    <string name="download_in_progress">新版本正在下载，完成后会自动弹出安装</string>
+</resources>

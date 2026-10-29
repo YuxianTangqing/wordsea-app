@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- M189b 开屏统一：安卓 12+ 系统开屏背景米白（图标用默认自适应帆船）。 -->
+<!-- 同名样式在 API>=31 时覆盖 values/ 版本；splashscreen_background 由 colors.xml 兜底米白。 -->
+<resources>
+    <style name="Theme.App.SplashScreen" parent="AppTheme">
+        <item name="android:windowSplashScreenBackground">@color/splashscreen_background</item>
+    </style>
+</resources>

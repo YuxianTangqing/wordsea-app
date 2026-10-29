@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- M189d 启动图 layer-list：米白底 + 位图居中不拉伸（patch-android-build.mjs 每次重建，prebuild 会冲掉）。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splashscreen_background" />
+    <item>
+        <bitmap android:src="@drawable/splashscreen_logo" android:gravity="center" />
+    </item>
+</layer-list>
