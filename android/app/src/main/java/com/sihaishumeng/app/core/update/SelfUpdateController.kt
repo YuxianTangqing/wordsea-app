@@ -4,7 +4,6 @@ import android.app.Activity
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.ContextCompat
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
@@ -13,6 +12,7 @@ import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.URLUtil
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
