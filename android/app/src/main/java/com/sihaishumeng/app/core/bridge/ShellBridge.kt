@@ -20,8 +20,13 @@ class ShellBridge(
     private val activity: Activity,
     private val tts: TtsController,
     private val keyboard: KeyboardInsetController,
-    /** M247 接管态写回宿主 @Volatile 字段（渲染进程重建不丢态——宿主持有） */
-    private val setVolumePaging: (Boolean) -> Unit,
+    /** M247 接管态写回宿主 @Volatile 字段（渲染进程重建不丢态——宿主持有）。
+     *  ⚠️ 勿改名回 setVolumePaging：与方法 fun setVolumePaging 同名时，Kotlin 调用点
+     *  `setVolumePaging(enabled)` 的重载解析「同名函数优先于函数类型属性的 invoke
+     *  约定」→ 编译成方法自调用无限递归 → StackOverflowError 经 WebView 包装成
+     *  JS Error「Java exception was raised during method invocation」抛回网页 →
+     *  阅读器挂载即 error.tsx 死循环（批②真机验收实锤，2026-10-30）。 */
+    private val onVolumePagingChange: (Boolean) -> Unit,
 ) {
     @JavascriptInterface
     fun versionName(): String = try {
@@ -43,7 +48,7 @@ class ShellBridge(
      *  仅写宿主 @Volatile 布尔——无 UI 动作，无需 runOnUiThread。 */
     @JavascriptInterface
     fun setVolumePaging(enabled: Boolean) {
-        setVolumePaging(enabled)
+        onVolumePagingChange(enabled)
     }
 
     /** M248 预热原生 TTS（web 阅读器挂载时调；引擎懒初始化零动作面——授权大域
