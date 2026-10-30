@@ -17,7 +17,7 @@ import org.json.JSONObject
  * 两个 SDK 铁坑（官方 wiki）：
  * - IUiListener 必须成员持有——SDK 对 listener 是弱引用，局部变量=回调被 GC 丢失；
  * - 授权结果的 onActivityResult 必须回灌 Tencent.onActivityResultData，
- *   由宿主 Activity（LoginActivity）透传给本单例。
+ *   由宿主 Activity（批④W 起=MainActivity）透传给本单例。
  */
 object QqAuth {
 

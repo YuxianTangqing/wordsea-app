@@ -40,10 +40,11 @@
     显式组件回跳，不占 sihaishumeng scheme）——商户侧零 manifest 配置）。
   - `wxapi/WXEntryActivity`：微信回跳硬契约（包名 {applicationId}.wxapi、exported、
     无 intent-filter——错一字回调静默不达）。
-  - `ui/LoginActivity`：原生登录屏（/auth/login 由 MainActivity 拦截接管——只拦
-    「导航进入」，loadUrl 直载不经 shouldOverrideUrlLoading=「网页版登录」回退天然
-    不受拦）。密码登录=识别符归一（手机形 /phone-number、其余 /email，M312 回退
-    复刻）+四家按钮+邀请码折叠（随社交开号上送，服务端先验码再开号——M340 教训）。
+  - ~~`ui/LoginActivity`：原生登录屏~~（**批④W 2026-10-30 退役**：站主裁定「用
+    网页的登录UI」——登录页=网页本尊（/auth/login 不再接管，主 WebView 直接渲染），
+    四家按钮经桥 `__wsShell.socialLogin(provider, optionsJson, callbackName)` 拉原生
+    SDK，结果 JSON 经 `window[callbackName](json)` 回呼网页；QQ onActivityResult
+    透传随宿主迁 MainActivity。恢复路径=git 历史 bf954df。）
   - QQ open-sdk=aliyun public 代理的 `com.tencent.tauth:qqopensdk:3.53.0`（JCenter
     遗物，Central 无；2021 lastUpdated）——真机若遇 2024-06 平台政策不兼容 → 换
     wiki.connect.qq.com 手动 open_sdk_3.5.17_lite.jar（API 面兼容）。
@@ -53,15 +54,19 @@
     网页流惰性回填（qq-provider，带回填冲突守卫防双号 split-brain）。
   - ⭐坑记：Kotlin 块注释**可嵌套**——注释里写「/api/auth/*」会多开一层注释致
     Unclosed comment（BiliAuthActivity 实录）。
-- 批④ T1 原生页：`ui/` 18-20 页（书架/书库/详情/论坛/搜索/通知/签到/我的）+
-  `core/web` 路由表非白名单一律 WebView 兜底。
+- ~~批④ T1 原生页~~（2026-10-30 真机否决「UI 丑」→ 深夜探讨会站主定稿**网页为主+
+  原生骨架**）：51 文件/5161 行封存于 git tag `batch4-native`（复活=cherry-pick 该
+  tag；苹果 4.2 拒纯壳时的 Plan B）。主线回退 bf954df 后批④W 落地=**APP 零原生 UI**
+  （原生只留能力层：四家登录 SDK+自更新+桥四件+Cookie 三通）。
 - 批⑤ v2.0 首发：服务器双名 APK + web 仓 site.ts 版本**与 APK 上传同批**；壳仓归档。
 
 ## 铁律
 
 - **桥契约冻结**：`__wsShell` 8 方法签名与行为逐字保留、回调
   `__wsKeyboard/__wsTtsEvent/__wsVolumeKey` 不动——web 层零改动同时适配轻壳与本仓。
-  **UA 尾标 `SiHaiShuMengShell/1.1` 不动**（代际标识；web 判 shell-latest 靠桥版本号）。
+  批④W 增第 9 方法 `socialLogin`（登录页网页化；增量不在冻结列，老壳无此方法=web
+  特征探测回落网页 OAuth）。**UA 尾标 `SiHaiShuMengShell/1.1` 不动**（代际标识；
+  web 判 shell-latest 靠桥版本号）。
 - **core 层纯 Kotlin 解耦**：`core/*` 与 UI 解耦、只经构造注入宿主（Activity/回调）——
   目标是 iOS/KMP 留门，未来整包抽 `:core`；业务逻辑禁止写进 MainActivity。
 - **恒指线上正式站**：SITE_URL 不读环境变量；**零密钥零凭据**（SDK appid 等凭证

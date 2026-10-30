@@ -49,13 +49,6 @@
             </intent-filter>
         </activity>
 
-        <!-- 批③ 原生登录屏（/auth/login 原生接管；singleTask 免返回栈自叠） -->
-        <activity
-            android:name=".ui.LoginActivity"
-            android:exported="false"
-            android:screenOrientation="portrait"
-            android:windowSoftInputMode="adjustResize" />
-
         <!-- 批③ B站 WebView 授权屏（透明承载，站内回调完成即收）。批③R：主题换
              AppCompat 族透明款——框架 Translucent 主题+AppCompatActivity=点开必崩 -->
         <activity

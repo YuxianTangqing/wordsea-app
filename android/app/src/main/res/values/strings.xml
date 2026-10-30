@@ -15,25 +15,5 @@
     <!-- M-APP15 壳内自更新 -->
     <string name="download_already_latest">已是最新版本 v%1$s</string>
     <string name="download_in_progress">新版本正在下载，完成后会自动弹出安装</string>
-
-    <!-- 批③ 原生登录屏 -->
-    <string name="login_title">登录四海书盟</string>
-    <string name="login_identifier_hint">邮箱 / 用户名 / 手机号</string>
-    <string name="login_password_hint">密码</string>
-    <string name="login_submit">登 录</string>
-    <string name="login_or_divider">── 或 ──</string>
-    <string name="login_social_wechat">微信</string>
-    <string name="login_social_qq">QQ</string>
-    <string name="login_social_bili">B站</string>
-    <string name="login_social_alipay">支付宝</string>
-    <string name="login_invite_toggle">有邀请码？</string>
-    <string name="login_invite_hint">邀请码（邀请人的 UID 数字）</string>
-    <string name="login_link_web">网页版登录</string>
-    <string name="login_link_register">注册</string>
-    <string name="login_link_forgot">找回密码</string>
-    <string name="login_success">登录成功</string>
-    <string name="login_failed">登录失败：%1$s</string>
-    <string name="login_wechat_missing">未安装微信，无法使用微信登录</string>
-    <string name="login_in_progress">正在登录…</string>
-    <string name="bili_auth_title">B站授权</string>
+    <!-- 批④W：批③ 原生登录屏 20 条 login_*/bili_auth_title 随 LoginActivity 退役删除 -->
 </resources>

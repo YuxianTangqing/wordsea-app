@@ -10,11 +10,14 @@ import com.sihaishumeng.app.core.device.TtsController
 /**
  * __wsShell JS 桥（M-APP15 版本桥起家；M247 音量键/M248 TTS/M249 键盘通道随批；
  * 批②自壳迁出）——**桥契约冻结**：8 个方法签名与行为逐字保留，web 层零改动同时
- * 适配轻壳与本原生工程（wordsea-app 路线定稿 2026-10-29）。
+ * 适配轻壳与本原生工程（wordsea-app 路线定稿 2026-10-29）。批④W 新增第 9 方法
+ * socialLogin（登录页网页化：四家按钮走桥拉 SDK）——增量不在冻结列，老壳 1.1.9
+ * 无此方法，web 侧特征探测（typeof）回落网页 OAuth。
  *
  * 只暴露只读版本号+声明性动作——授权大域页面（qq/alipay/bilibili/github）拿到的
- * 也只是数字与无副作用的开关；@JavascriptInterface 方法跑在 binder 线程。
- * 旧壳（1.1.4-）无此桥：web 侧回退 UA 尾标判定。
+ * 也只是数字与无副作用的开关（socialLogin 只对主 WebView 生效页面有意义：结果
+ * 回呼注入本 WebView，三方页拿到也拿不到会话）。@JavascriptInterface 方法跑在
+ * binder 线程。旧壳（1.1.4-）无此桥：web 侧回退 UA 尾标判定。
  */
 class ShellBridge(
     private val activity: Activity,
@@ -27,6 +30,9 @@ class ShellBridge(
      *  JS Error「Java exception was raised during method invocation」抛回网页 →
      *  阅读器挂载即 error.tsx 死循环（批②真机验收实锤，2026-10-30）。 */
     private val onVolumePagingChange: (Boolean) -> Unit,
+    /** 批④W 桥面社交登录（切主线程后转发宿主 handleSocialLogin）。
+     *  ⚠️ 同上命名铁律：参数名与方法 fun socialLogin 严禁同名（递归坑同源）。 */
+    private val onSocialLogin: (String, String, String) -> Unit,
 ) {
     @JavascriptInterface
     fun versionName(): String = try {
@@ -77,4 +83,13 @@ class ShellBridge(
     /** M249 换算分母：最近一次推送时刻的 WebView 物理 px（keyboardHeight 为 0 时无意义） */
     @JavascriptInterface
     fun keyboardViewportPx(): Int = keyboard.lastViewPx
+
+    /** 批④W 网页登录页四家按钮的 SDK 拉起口（登录页=网页本尊，桥只做能力层）。
+     *  provider=wechat/qq/alipay/bilibili；optionsJson={invite?}；callbackName=网页
+     *  注册的一次性回呼名（结果 JSON 由 SocialAuthController 产出）。跑在 binder
+     *  线程——切主线程再动 SDK/Activity。 */
+    @JavascriptInterface
+    fun socialLogin(provider: String, optionsJson: String, callbackName: String) {
+        activity.runOnUiThread { onSocialLogin(provider, optionsJson, callbackName) }
+    }
 }

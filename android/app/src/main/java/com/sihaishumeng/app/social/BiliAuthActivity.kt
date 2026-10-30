@@ -32,14 +32,18 @@ import com.sihaishumeng.app.core.SiteConfig
  * Translucent+AppCompatActivity=setContentView 必崩进程，见 styles.xml）；②空白期
  * 观感加固——米白底+居中转圈（首帧 onPageFinished 隐），主框架加载失败立即收屏，
  * 慢网下不再呈现「透明悬停在登录屏上像死机」的形态。
+ *
+ * 批④W：站内落地 URL 随 completion 回传（finalUrl）——新号落地页
+ * （/settings/account-security?welcome=1[&invite=]）由主 WebView 打开承接 M340
+ * 邀请码兑换（批③ 收屏吞页=邀请从未真正兑换的根治面）。
  */
 class BiliAuthActivity : AppCompatActivity() {
 
     companion object {
         private const val EXTRA_URL = "biliAuthUrl"
-        private var completion: ((Boolean) -> Unit)? = null
+        private var completion: ((Boolean, String?) -> Unit)? = null
 
-        fun launch(activity: Activity, url: String, onDone: (Boolean) -> Unit) {
+        fun launch(activity: Activity, url: String, onDone: (Boolean, String?) -> Unit) {
             completion = onDone
             activity.startActivity(
                 Intent(activity, BiliAuthActivity::class.java).putExtra(EXTRA_URL, url)
@@ -89,9 +93,10 @@ class BiliAuthActivity : AppCompatActivity() {
                 return when {
                     // 站内回调链放行（302 由引擎跟）
                     onSite && path.startsWith("/api/auth/") -> false
-                    // 站内落地页（/ 或 /settings/…?welcome=1 或 error 回登录页）=完成
+                    // 站内落地页（/ 或 /settings/…?welcome=1 或 error 回登录页）=完成；
+                    // 落地 URL 回传（批④W：新号落地页由主 WebView 打开）
                     onSite -> {
-                        finishWith(!path.startsWith("/auth/login"))
+                        finishWith(!path.startsWith("/auth/login"), request.url.toString())
                         true
                     }
                     // B站/授权大域（授权页本体与其站内跳转）
@@ -118,14 +123,14 @@ class BiliAuthActivity : AppCompatActivity() {
         web.loadUrl(url)
     }
 
-    private fun finishWith(ok: Boolean) {
+    private fun finishWith(ok: Boolean, finalUrl: String? = null) {
         if (done) return
         done = true
         val cb = completion
         completion = null
         CookieManager.getInstance().flush()
         finish()
-        cb?.invoke(ok)
+        cb?.invoke(ok, finalUrl)
     }
 
     override fun onDestroy() {

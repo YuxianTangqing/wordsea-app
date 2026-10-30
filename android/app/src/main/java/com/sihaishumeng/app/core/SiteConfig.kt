@@ -30,10 +30,6 @@ object SiteConfig {
     // 不经 scheme 解析，二者无冲突。
     const val ALIPAY_SCHEME = "sihaishumeng"
 
-    // 批③ 原生登录屏接管路由（批④ 正式路由表前哨；LoginActivity 内置「网页版登录」
-    // 回退原址，行为可逆）
-    const val NATIVE_LOGIN_PATH = "/auth/login"
-
     // M188f 恒桌面 UA。尾标 SiHaiShuMengShell/1.1 是「代际标识」非版本号（改它=QQ
     // 授权链重测面），Kotlin 壳恒 1.1。M-APP15 起具体版本经 __wsShell JS 桥暴露
     // （见 attachWebView），web 侧先查桥、无桥再回退尾标判旧壳——不要再动这个数字。

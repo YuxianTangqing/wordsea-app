@@ -35,7 +35,7 @@ import com.sihaishumeng.app.core.device.KeyboardInsetController
 import com.sihaishumeng.app.core.device.TtsController
 import com.sihaishumeng.app.core.update.SelfUpdateController
 import com.sihaishumeng.app.core.web.WebViewRouter
-import com.sihaishumeng.app.ui.LoginActivity
+import com.sihaishumeng.app.social.SocialAuthController
 import org.json.JSONObject
 import java.io.File
 import kotlin.concurrent.thread
@@ -55,15 +55,12 @@ import kotlin.concurrent.thread
  *
  * 铁律全文见本仓 CLAUDE.md 与 core/SiteConfig.kt 注释（恒线上站/零密钥/站外拦截/
  * scheme 黑洞/恒桌面 UA/SwipeRefreshLayout mTarget/键盘盖页第三态/缓存 360MB）。
- * 后续批次：批③ social/ 四家登录 SDK、批④ ui/ 原生页（core 层纯 Kotlin 解耦，
- * 为 iOS/KMP 留门——勿把业务逻辑写进本 Activity）。
+ * 批③ 四家登录 SDK + 批③R /auth/login 接管曾以原生登录屏为主路径；批④W（站主
+ * 2026-10-30 裁定「用网页的登录UI」）登录屏与接管全家退役——登录页=网页本尊，
+ * 四家按钮经 __wsShell.socialLogin 桥拉 SDK（本 Activity 零原生 UI；SDK 结果经
+ * evalJs 回呼网页）。core 层纯 Kotlin 解耦为 iOS/KMP 留门——勿把业务逻辑写进本 Activity。
  */
 class MainActivity : AppCompatActivity() {
-
-    companion object {
-        /** 批③：LoginActivity「网页版登录/注册/找回密码」回退——singleTask 复用本实例定向加载 */
-        const val EXTRA_OPEN_URL = "openUrl"
-    }
 
     // ── 状态五态（壳 1:1）+ 返回键时间戳 ──
     private var canGoBack = false
@@ -72,16 +69,6 @@ class MainActivity : AppCompatActivity() {
     private var errorActive = false
     private var extHost: String? = null
     private var lastBackAt = 0L
-
-    // ── 批③R /auth/login 全导航形态接管（真机报障根因②返修）──
-    /** LoginActivity「网页版登录」显式回退态：置起期间接管让路（网页登录页内的
-     *  302 失败回跳等不被劫回原生屏），离开 auth 前缀路径即自动恢复接管。 */
-    private var webLoginFallback = false
-    /** 原生登录屏在前（loginLauncher 已发未收）——防重复拉起。 */
-    private var nativeLoginShowing = false
-    /** 批③R-b 接管遮罩：软导航驶入登录页的瞬间置起（与首载遮罩同一张品牌加载遮罩），
-     *  挡掉「网页登录页渲染帧→原生屏落座」之间的闪现；登录屏回结果即撤。 */
-    private var takeoverCover = false
 
     // ── M247 音量键翻页：web 侧（阅读器挂载且听书未播）经 __wsShell.setVolumePaging(true)
     //    声明接管才拦键；默认 false＝旧网页/非阅读器页面音量键归系统。@Volatile：
@@ -93,6 +80,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var ttsController: TtsController
     private lateinit var keyboardInset: KeyboardInsetController
     private lateinit var selfUpdate: SelfUpdateController
+    /** 批④W 桥面社交登录编排（网页登录页四家按钮 → SDK → app-social 端点 → 回呼网页） */
+    private lateinit var socialAuth: SocialAuthController
 
     private lateinit var rootLayout: ViewGroup
     private lateinit var swipe: SwipeRefreshLayout
@@ -118,15 +107,16 @@ class MainActivity : AppCompatActivity() {
             fileChooserCallback = null
         }
 
-    // 批③：登录屏 RESULT_OK=已登入——重载当前页让登录态立即可见（cookie 在共享
-    // CookieManager，重载即带）
-    private val loginLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            nativeLoginShowing = false
-            takeoverCover = false
-            updateUi() // 取消路径无后续页面事件兜底，遮罩必须在此显式撤
-            if (result.resultCode == RESULT_OK && this::webView.isInitialized) webView.reload()
+    // 批④W 桥面社交登录：网页登录页四家按钮经 __wsShell.socialLogin 进来，结果 JSON
+    // 经 window[callbackName](json) 回呼网页（JSON 直作 JS 对象字面量注入）
+    private fun handleSocialLogin(provider: String, optionsJson: String, callbackName: String) {
+        socialAuth.startForWeb(provider, optionsJson) { json ->
+            evalJs(
+                "window[${JSONObject.quote(callbackName)}] && " +
+                    "window[${JSONObject.quote(callbackName)}]($json);"
+            )
         }
+    }
 
     /** 主线程 JS 注入唯一出口（各控制器经此回呼；webView 未初始化=静默丢弃，
      *  与壳 1.1.9 的 isInitialized 守卫同语义） */
@@ -143,6 +133,7 @@ class MainActivity : AppCompatActivity() {
             evalJs = { js -> evalJs(js) },
         )
         selfUpdate = SelfUpdateController(this, this)
+        socialAuth = SocialAuthController(this)
         // targetSdk 36 强制 edge-to-edge：自管 insets
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
@@ -246,7 +237,13 @@ class MainActivity : AppCompatActivity() {
         // __wsShell 版本桥：每个新文档开始前即注入页面 JS 语境（无时序问题）；
         // render 崩溃重建走同一装配口自动恢复
         webView.addJavascriptInterface(
-            ShellBridge(this, ttsController, keyboardInset) { enabled -> volumePaging = enabled },
+            ShellBridge(
+                this,
+                ttsController,
+                keyboardInset,
+                { enabled -> volumePaging = enabled },
+                ::handleSocialLogin,
+            ),
             "__wsShell",
         )
         // 精确移除旧实例（onRenderProcessGone 重建路径）——绝不用 removeAllViews：
@@ -264,23 +261,9 @@ class MainActivity : AppCompatActivity() {
     private fun createWebViewClient(): WebViewClient = object : WebViewClient() {
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-            // 批③ 原生登录屏接管站内 /auth/login（批④ 正式路由表前哨）。只拦「导航
-            // 进入」：当前已在登录页（网页版登录回退态）不再拦，站内失败重定向不会
-            // 把用户再弹回原生屏。loadUrl 直载不经本函数——LoginActivity 的
-            // 「网页版登录」回退不受影响。批③R：软导航入口另由
-            // maybeTakeOverLogin 覆盖（见 doUpdateVisitedHistory）。
-            val host = request.url.host?.lowercase()
-            val path = request.url.path ?: ""
-            if (host != null && host in SiteConfig.SITE_HOSTS && path == SiteConfig.NATIVE_LOGIN_PATH) {
-                if (webLoginFallback || nativeLoginShowing) return false
-                val currentPath = view.url?.let { runCatching { Uri.parse(it).path }.getOrNull() }
-                if (currentPath != SiteConfig.NATIVE_LOGIN_PATH) {
-                    nativeLoginShowing = true
-                    loginLauncher.launch(Intent(this@MainActivity, LoginActivity::class.java))
-                    return true
-                }
-                return false
-            }
+            // 批④W：/auth/login 不再接管——登录页=网页本尊（站内路径 router 恒返
+            // false=壳内加载，四家按钮走桥拉 SDK）。scheme 黑洞/外链送系统浏览器
+            // 全在 router.routeUrl。
             return router.routeUrl(view, request.url) { h ->
                 extHost = h
                 updateUi()
@@ -290,8 +273,6 @@ class MainActivity : AppCompatActivity() {
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
             // 任何新导航开始即清错误态（返回上一页/重试/回首页后遮罩即时消失）
             errorActive = false
-            // 批③R：兜 302 落地等不触发 shouldOverrideUrlLoading 的整页加载形态
-            maybeTakeOverLogin(url, isReload = false, bounce = true)
             updateUi()
         }
 
@@ -307,9 +288,6 @@ class MainActivity : AppCompatActivity() {
         override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
             // SPA 客户端路由 pushState 挂点——canGoBack 跟随路由历史
             canGoBack = view.canGoBack()
-            // 批③R：站内「登录」入口全是 Next Link/router.push 软导航（不过
-            // shouldOverrideUrlLoading）——接管必须挂在这里才全覆盖
-            maybeTakeOverLogin(url, isReload, bounce = true)
             updateUi()
         }
 
@@ -336,32 +314,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 批③R /auth/login 全导航形态接管（真机报障返修：B站崩溃重开后点导航栏「登录」
-     * 渲染出网页版登录页——根因=接管只挂 shouldOverrideUrlLoading，而站内登录入口
-     * 全是软导航 pushState 不过该回调）。软硬导航（doUpdateVisitedHistory/
-     * onPageStarted）统一走本口：命中即开原生屏；软导航页面已驶入无法取消，bounce
-     * 把主 WebView 弹回首页——登录成功 reload 即见登录态首页，背后不残留网页登录页。
-     * 三守卫：isReload（下拉刷新/登录成功 reload 不劫）/webLoginFallback（「网页版
-     * 登录」显式回退态）/nativeLoginShowing（屏已在前防重复拉起）。
+     * QQ SDK 授权结果回灌（批④W：SDK 铁律——结果必须透传 Tencent.onActivityResultData，
+     * 宿主从 LoginActivity 换成 Main，透传链随登录屏退役迁到此）。
      */
-    private fun maybeTakeOverLogin(url: String?, isReload: Boolean, bounce: Boolean) {
-        val u = url?.let { runCatching { Uri.parse(it) }.getOrNull() } ?: return
-        val path = u.path ?: return
-        if (path == SiteConfig.NATIVE_LOGIN_PATH) {
-            if (isReload || webLoginFallback || nativeLoginShowing) return
-            if (u.host?.lowercase() !in SiteConfig.SITE_HOSTS) return
-            nativeLoginShowing = true
-            // 批③R-b：软导航页面已驶入（Link 预取=RSC 秒到，登录页先渲染）而原生屏
-            // 窗口动画还在路上——同帧盖品牌加载遮罩挡掉中间闪现帧（硬导航路径
-            // return true 已取消加载无闪现，不盖）。
-            if (bounce) takeoverCover = true
-            loginLauncher.launch(Intent(this, LoginActivity::class.java))
-            if (bounce) evalJs("location.replace(${JSONObject.quote(SiteConfig.SITE_URL)});")
-        } else if (!path.startsWith("/auth/")) {
-            // 离开 auth 前缀（登录/注册/找回）＝回退语境结束，接管自动恢复。
-            // 停留在 auth 前缀内（如网页登录页跳注册再返回）不打断回退态。
-            webLoginFallback = false
-        }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        socialAuth.onActivityResult(requestCode, resultCode, data)
     }
 
     private fun createChromeClient(): WebChromeClient = object : WebChromeClient() {
@@ -447,18 +405,6 @@ class MainActivity : AppCompatActivity() {
         CookieManager.getInstance().flush()
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        // 批③：LoginActivity 链接区回退（singleTask 复用本实例定向加载）
-        intent.getStringExtra(EXTRA_OPEN_URL)?.let { url ->
-            // 批③R：目标=登录页（「网页版登录」回退）先置回退标记再加载——
-            // loadUrl 与其后续导航不被原生接管劫回；离开 auth 前缀自动恢复。
-            webLoginFallback =
-                runCatching { Uri.parse(url).path }.getOrNull() == SiteConfig.NATIVE_LOGIN_PATH
-            if (this::webView.isInitialized) webView.loadUrl(url)
-        }
-    }
-
     override fun onResume() {
         super.onResume()
         // M-APP15：后台完成的更新包在此补弹安装器（后台 startActivity 被静默拦的兜底）
@@ -479,11 +425,8 @@ class MainActivity : AppCompatActivity() {
     private fun updateUi() {
         progressBar.progress = progress
         progressBar.visibility = if (!errorActive && progress < 100) View.VISIBLE else View.GONE
-        // takeoverCover：批③R-b 接管过渡遮罩（与首载同一张品牌遮罩）
         loadingOverlay.visibility =
-            if (!errorActive && (takeoverCover || (!loadedOnce && progress < 100)))
-                View.VISIBLE
-            else View.GONE
+            if (!errorActive && !loadedOnce && progress < 100) View.VISIBLE else View.GONE
         errorOverlay.visibility = if (errorActive) View.VISIBLE else View.GONE
         errorBackBtn.visibility = if (canGoBack) View.VISIBLE else View.GONE
         val host = extHost
