@@ -9,3 +9,14 @@
 -keepclassmembers class * {
     @android.webkit.JavascriptInterface <methods>;
 }
+
+# 批③ 微信 OpenSDK（官方 keep 规则；wxop 是 opensdk 前身包名兼容保留）
+-keep class com.tencent.mm.opensdk.** { *; }
+-keep class com.tencent.wxop.** { *; }
+# 批③ QQ open-sdk（社区通用规则——jar 无 proguard.cfg 附件须手 keep）
+-keep class com.tencent.open.** { *; }
+-keep class com.tencent.tauth.** { *; }
+-dontwarn com.tencent.**
+# 批③ okhttp/okio：R8 自带规则，仅消预警
+-dontwarn okhttp3.**
+-dontwarn okio.**

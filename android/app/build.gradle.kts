@@ -64,6 +64,15 @@ android {
 dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
-    // 批③起按需增补：recyclerview / okhttp / 微信 opensdk / QQ open-sdk / 支付宝
-    // OpenAuth 精简版（体积预算详见仓 CLAUDE.md——勿一次性全加）
+    // 批③（2026-10-30）：原生登录四件
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // 微信 OpenSDK（Maven Central，aliyun public 代理可达）
+    implementation("com.tencent.mm.opensdk:wechat-sdk-android:6.8.40")
+    // QQ 互联 open-sdk：3.53.0 是 JCenter 遗物（Central 无），靠 aliyun public 代理
+    // 拉取（2021 lastUpdated）。真机若遇 2024-06 平台政策不兼容 → 换 wiki.connect.qq.com
+    // 手动 open_sdk_3.5.17_lite.jar 入 libs/ 并删此行（API 面兼容）。
+    implementation("com.tencent.tauth:qqopensdk:3.53.0")
+    // 支付宝 OpenAuth 极简版 AAR 无任何 maven 托管（官方文档中心手动下载）——
+    // 站长下载 openauthsdk AAR 放入 libs/ 后解除下行注释并建 social/AlipayAuth.kt
+    // implementation(files("libs/openauthsdk.aar"))
 }

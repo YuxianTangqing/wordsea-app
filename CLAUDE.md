@@ -24,8 +24,33 @@
     「无问题」是错觉（翻页设置早已在 localStorage，没经设置舞步）。修复在
     wordsea 仓 ReaderShell（浮层收起一并复位面板态），随下窗部署生效；APP 无需
     重装。归因法：真按键 vs 手动调 handler 对拍→Escape 解卡实验→逐步舞步复现。
-- 批③ 四家登录：`social/` 四适配器（微信 SendAuth/QQ tauth/支付宝 OpenAuthTask/
-  B站 WebView 授权页沿用旧网页 client_id）+ web 仓新端点 `/api/auth/app-social/sign-in`。
+- **批③ 四家登录（2026-10-30 落地，验收待 Secret/真机）**：
+  - `core/api/`：ApiClient（OkHttp 单例，Origin/Referer 固定头）+ WebViewCookieJar
+    （OkHttp↔CookieManager 桥=登录态三处共享：原生收 Set-Cookie → CookieManager →
+    长尾 WebView 自动带）。
+  - `social/`：SocialAuthController 编排 + WechatAuth（SendAuth，state 回校）+
+    QqAuth（tauth，IUiListener **成员持有**防弱引用丢回调+onActivityResult 必回灌）+
+    BiliAuthActivity（零 SDK——/sign-in/social 拿 url 后 WebView 走完整网页回调链，
+    嗅探「站内非 /api/auth/ 页」即收）。支付宝=openauthsdk AAR **无任何 maven 托管**
+    → 站主从支付宝文档中心下载放 `libs/`、解注释 build.gradle 依赖行、补
+    `AlipayAuth.kt`（SiteConfig 已备 appid 常量）。
+  - `wxapi/WXEntryActivity`：微信回跳硬契约（包名 {applicationId}.wxapi、exported、
+    无 intent-filter——错一字回调静默不达）。
+  - `ui/LoginActivity`：原生登录屏（/auth/login 由 MainActivity 拦截接管——只拦
+    「导航进入」，loadUrl 直载不经 shouldOverrideUrlLoading=「网页版登录」回退天然
+    不受拦）。密码登录=识别符归一（手机形 /phone-number、其余 /email，M312 回退
+    复刻）+四家按钮+邀请码折叠（随社交开号上送，服务端先验码再开号——M340 教训）。
+  - QQ open-sdk=aliyun public 代理的 `com.tencent.tauth:qqopensdk:3.53.0`（JCenter
+    遗物，Central 无；2021 lastUpdated）——真机若遇 2024-06 平台政策不兼容 → 换
+    wiki.connect.qq.com 手动 open_sdk_3.5.17_lite.jar（API 面兼容）。
+  - 服务端（wordsea 仓批③）：`/api/auth/app-social/sign-in`（微信 unionid 硬必需/
+    QQ client_id 强制+unionid 反查/支付宝 user_id）+ QQ unionid 一次性迁移脚本
+    `m-app-qq-unionid-backfill.mjs`（解存量 token 回填 Account.unionid，幂等）+
+    网页流惰性回填（qq-provider，带回填冲突守卫防双号 split-brain）。
+  - ⭐坑记：Kotlin 块注释**可嵌套**——注释里写「/api/auth/*」会多开一层注释致
+    Unclosed comment（BiliAuthActivity 实录）。
+- 批④ T1 原生页：`ui/` 18-20 页（书架/书库/详情/论坛/搜索/通知/签到/我的）+
+  `core/web` 路由表非白名单一律 WebView 兜底。
 - 批④ T1 原生页：`ui/` 18-20 页（书架/书库/详情/论坛/搜索/通知/签到/我的）+
   `core/web` 路由表非白名单一律 WebView 兜底。
 - 批⑤ v2.0 首发：服务器双名 APK + web 仓 site.ts 版本**与 APK 上传同批**；壳仓归档。

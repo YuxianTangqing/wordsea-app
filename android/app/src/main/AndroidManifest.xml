@@ -7,13 +7,17 @@
          按来源授权，系统安装流会自动引导到设置，无需代码侧运行时申请） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- 包可见性：外跳送系统浏览器（ACTION_VIEW https）需要 -->
+    <!-- 包可见性：外跳送系统浏览器（ACTION_VIEW https）需要；批③ 三家登录宿主 App
+         可见性（微信 isWXAppInstalled 探测 / QQ 拉起与 WAP 兜底 / 支付宝预留） -->
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="https" />
         </intent>
+        <package android:name="com.tencent.mm" />
+        <package android:name="com.tencent.mobileqq" />
+        <package android:name="com.eg.android.AlipayGphone" />
     </queries>
 
     <application
@@ -44,6 +48,49 @@
                 <data android:scheme="sihaishumeng" />
             </intent-filter>
         </activity>
+
+        <!-- 批③ 原生登录屏（/auth/login 原生接管；singleTask 免返回栈自叠） -->
+        <activity
+            android:name=".ui.LoginActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- 批③ B站 WebView 授权屏（透明承载，站内回调完成即收） -->
+        <activity
+            android:name=".social.BiliAuthActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- 微信回跳硬契约：包名必须是 {applicationId}.wxapi、类名 WXEntryActivity、
+             exported、无 intent-filter（开放平台文档）——命名错一字回调静默不达 -->
+        <activity
+            android:name=".wxapi.WXEntryActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.sihaishumeng.app"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- QQ open-sdk 清单（jar 无 manifest 须手声）：scheme=tencent+AppID 字面拼接 -->
+        <activity
+            android:name="com.tencent.tauth.AuthActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tencent1905824730" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="com.tencent.connect.common.AssistActivity"
+            android:configChanges="orientation|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- DownloadManager 落 app 私有外部目录的更新包，经 FileProvider
              授权给系统安装器读（external-files-path 只圈 Download/ 一处） -->

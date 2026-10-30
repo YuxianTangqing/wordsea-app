@@ -20,6 +20,16 @@ object SiteConfig {
     val OAUTH_HOSTS = setOf("github.com")
     val OAUTH_SUFFIXES = listOf(".qq.com", ".alipay.com", ".bilibili.com")
 
+    // 批③ 四家登录 appid（公开标识可硬编码——AppKey/Secret 只进 web 仓服务器 .env，
+    // 本仓零密钥铁律）。B站零 appid：原生走网页流（client_id 在服务端）。
+    const val WECHAT_APP_ID = "wxd3b4d2acfec510e2"
+    const val QQ_APP_ID = "1905824730"
+    const val ALIPAY_APP_ID = "2021007110603730" // AAR 落地后启用（build.gradle 注释位）
+
+    // 批③ 原生登录屏接管路由（批④ 正式路由表前哨；LoginActivity 内置「网页版登录」
+    // 回退原址，行为可逆）
+    const val NATIVE_LOGIN_PATH = "/auth/login"
+
     // M188f 恒桌面 UA。尾标 SiHaiShuMengShell/1.1 是「代际标识」非版本号（改它=QQ
     // 授权链重测面），Kotlin 壳恒 1.1。M-APP15 起具体版本经 __wsShell JS 桥暴露
     // （见 attachWebView），web 侧先查桥、无桥再回退尾标判旧壳——不要再动这个数字。

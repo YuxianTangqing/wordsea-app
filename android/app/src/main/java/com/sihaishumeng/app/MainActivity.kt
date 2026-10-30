@@ -35,6 +35,7 @@ import com.sihaishumeng.app.core.device.KeyboardInsetController
 import com.sihaishumeng.app.core.device.TtsController
 import com.sihaishumeng.app.core.update.SelfUpdateController
 import com.sihaishumeng.app.core.web.WebViewRouter
+import com.sihaishumeng.app.ui.LoginActivity
 import org.json.JSONObject
 import java.io.File
 import kotlin.concurrent.thread
@@ -58,6 +59,11 @@ import kotlin.concurrent.thread
  * 为 iOS/KMP 留门——勿把业务逻辑写进本 Activity）。
  */
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        /** 批③：LoginActivity「网页版登录/注册/找回密码」回退——singleTask 复用本实例定向加载 */
+        const val EXTRA_OPEN_URL = "openUrl"
+    }
 
     // ── 状态五态（壳 1:1）+ 返回键时间戳 ──
     private var canGoBack = false
@@ -237,11 +243,26 @@ class MainActivity : AppCompatActivity() {
 
     private fun createWebViewClient(): WebViewClient = object : WebViewClient() {
 
-        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-            router.routeUrl(view, request.url) { host ->
-                extHost = host
+        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+            // 批③ 原生登录屏接管站内 /auth/login（批④ 正式路由表前哨）。只拦「导航
+            // 进入」：当前已在登录页（网页版登录回退态）不再拦，站内失败重定向不会
+            // 把用户再弹回原生屏。loadUrl 直载不经本函数——LoginActivity 的
+            // 「网页版登录」回退不受影响。
+            val host = request.url.host?.lowercase()
+            val path = request.url.path ?: ""
+            if (host != null && host in SiteConfig.SITE_HOSTS && path == SiteConfig.NATIVE_LOGIN_PATH) {
+                val currentPath = view.url?.let { runCatching { Uri.parse(it).path }.getOrNull() }
+                if (currentPath != SiteConfig.NATIVE_LOGIN_PATH) {
+                    startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                    return true
+                }
+                return false
+            }
+            return router.routeUrl(view, request.url) { h ->
+                extHost = h
                 updateUi()
             }
+        }
 
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
             // 任何新导航开始即清错误态（返回上一页/重试/回首页后遮罩即时消失）
@@ -367,6 +388,14 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
         // M189e 铁律：退后台立刻落盘 cookie——「登录完秒杀 APP」会话只在内存的坑
         CookieManager.getInstance().flush()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // 批③：LoginActivity 链接区回退（singleTask 复用本实例定向加载）
+        intent.getStringExtra(EXTRA_OPEN_URL)?.let { url ->
+            if (this::webView.isInitialized) webView.loadUrl(url)
+        }
     }
 
     override fun onResume() {
