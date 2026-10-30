@@ -73,6 +73,13 @@ class MainActivity : AppCompatActivity() {
     private var extHost: String? = null
     private var lastBackAt = 0L
 
+    // ── 批③R /auth/login 全导航形态接管（真机报障根因②返修）──
+    /** LoginActivity「网页版登录」显式回退态：置起期间接管让路（网页登录页内的
+     *  302 失败回跳等不被劫回原生屏），离开 auth 前缀路径即自动恢复接管。 */
+    private var webLoginFallback = false
+    /** 原生登录屏在前（loginLauncher 已发未收）——防重复拉起。 */
+    private var nativeLoginShowing = false
+
     // ── M247 音量键翻页：web 侧（阅读器挂载且听书未播）经 __wsShell.setVolumePaging(true)
     //    声明接管才拦键；默认 false＝旧网页/非阅读器页面音量键归系统。@Volatile：
     //    JS 桥 binder 线程写、主线程 onKeyDown 读 ──
@@ -112,6 +119,7 @@ class MainActivity : AppCompatActivity() {
     // CookieManager，重载即带）
     private val loginLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            nativeLoginShowing = false
             if (result.resultCode == RESULT_OK && this::webView.isInitialized) webView.reload()
         }
 
@@ -254,12 +262,15 @@ class MainActivity : AppCompatActivity() {
             // 批③ 原生登录屏接管站内 /auth/login（批④ 正式路由表前哨）。只拦「导航
             // 进入」：当前已在登录页（网页版登录回退态）不再拦，站内失败重定向不会
             // 把用户再弹回原生屏。loadUrl 直载不经本函数——LoginActivity 的
-            // 「网页版登录」回退不受影响。
+            // 「网页版登录」回退不受影响。批③R：软导航入口另由
+            // maybeTakeOverLogin 覆盖（见 doUpdateVisitedHistory）。
             val host = request.url.host?.lowercase()
             val path = request.url.path ?: ""
             if (host != null && host in SiteConfig.SITE_HOSTS && path == SiteConfig.NATIVE_LOGIN_PATH) {
+                if (webLoginFallback || nativeLoginShowing) return false
                 val currentPath = view.url?.let { runCatching { Uri.parse(it).path }.getOrNull() }
                 if (currentPath != SiteConfig.NATIVE_LOGIN_PATH) {
+                    nativeLoginShowing = true
                     loginLauncher.launch(Intent(this@MainActivity, LoginActivity::class.java))
                     return true
                 }
@@ -274,6 +285,8 @@ class MainActivity : AppCompatActivity() {
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
             // 任何新导航开始即清错误态（返回上一页/重试/回首页后遮罩即时消失）
             errorActive = false
+            // 批③R：兜 302 落地等不触发 shouldOverrideUrlLoading 的整页加载形态
+            maybeTakeOverLogin(url, isReload = false, bounce = true)
             updateUi()
         }
 
@@ -289,6 +302,9 @@ class MainActivity : AppCompatActivity() {
         override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
             // SPA 客户端路由 pushState 挂点——canGoBack 跟随路由历史
             canGoBack = view.canGoBack()
+            // 批③R：站内「登录」入口全是 Next Link/router.push 软导航（不过
+            // shouldOverrideUrlLoading）——接管必须挂在这里才全覆盖
+            maybeTakeOverLogin(url, isReload, bounce = true)
             updateUi()
         }
 
@@ -311,6 +327,31 @@ class MainActivity : AppCompatActivity() {
             attachWebView()
             updateUi()
             return true
+        }
+    }
+
+    /**
+     * 批③R /auth/login 全导航形态接管（真机报障返修：B站崩溃重开后点导航栏「登录」
+     * 渲染出网页版登录页——根因=接管只挂 shouldOverrideUrlLoading，而站内登录入口
+     * 全是软导航 pushState 不过该回调）。软硬导航（doUpdateVisitedHistory/
+     * onPageStarted）统一走本口：命中即开原生屏；软导航页面已驶入无法取消，bounce
+     * 把主 WebView 弹回首页——登录成功 reload 即见登录态首页，背后不残留网页登录页。
+     * 三守卫：isReload（下拉刷新/登录成功 reload 不劫）/webLoginFallback（「网页版
+     * 登录」显式回退态）/nativeLoginShowing（屏已在前防重复拉起）。
+     */
+    private fun maybeTakeOverLogin(url: String?, isReload: Boolean, bounce: Boolean) {
+        val u = url?.let { runCatching { Uri.parse(it) }.getOrNull() } ?: return
+        val path = u.path ?: return
+        if (path == SiteConfig.NATIVE_LOGIN_PATH) {
+            if (isReload || webLoginFallback || nativeLoginShowing) return
+            if (u.host?.lowercase() !in SiteConfig.SITE_HOSTS) return
+            nativeLoginShowing = true
+            loginLauncher.launch(Intent(this, LoginActivity::class.java))
+            if (bounce) evalJs("location.replace(${JSONObject.quote(SiteConfig.SITE_URL)});")
+        } else if (!path.startsWith("/auth/")) {
+            // 离开 auth 前缀（登录/注册/找回）＝回退语境结束，接管自动恢复。
+            // 停留在 auth 前缀内（如网页登录页跳注册再返回）不打断回退态。
+            webLoginFallback = false
         }
     }
 
@@ -401,6 +442,10 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         // 批③：LoginActivity 链接区回退（singleTask 复用本实例定向加载）
         intent.getStringExtra(EXTRA_OPEN_URL)?.let { url ->
+            // 批③R：目标=登录页（「网页版登录」回退）先置回退标记再加载——
+            // loadUrl 与其后续导航不被原生接管劫回；离开 auth 前缀自动恢复。
+            webLoginFallback =
+                runCatching { Uri.parse(url).path }.getOrNull() == SiteConfig.NATIVE_LOGIN_PATH
             if (this::webView.isInitialized) webView.loadUrl(url)
         }
     }

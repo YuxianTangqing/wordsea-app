@@ -5,10 +5,16 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.ProgressBar
 import androidx.appcompat.app.AppCompatActivity
 import com.sihaishumeng.app.core.SiteConfig
 
@@ -21,6 +27,11 @@ import com.sihaishumeng.app.core.SiteConfig
  * 分诊（比主 WebView 更收敛）：B站/GitHub/授权大域放行加载；本站 /api/auth/ 前缀
  * 放行（回调链）；本站其他路径=完成信号；其余一切拦死（授权屏内不外跳系统浏览器）。
  * （⚠️ Kotlin 块注释可嵌套——注释里勿写「斜杠星」通配形态，会多开一层注释。）
+ *
+ * 批③R 两修（真机报障「B站卡住没反应」返修）：①主题=AppCompat 族透明款（原框架
+ * Translucent+AppCompatActivity=setContentView 必崩进程，见 styles.xml）；②空白期
+ * 观感加固——米白底+居中转圈（首帧 onPageFinished 隐），主框架加载失败立即收屏，
+ * 慢网下不再呈现「透明悬停在登录屏上像死机」的形态。
  */
 class BiliAuthActivity : AppCompatActivity() {
 
@@ -43,7 +54,8 @@ class BiliAuthActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         val url = intent?.getStringExtra(EXTRA_URL) ?: run { finish(); return }
         val web = WebView(this)
-        web.setBackgroundColor(Color.TRANSPARENT)
+        // 米白底（主 WebView 同款）——授权页首帧前就有实体底色，不再透明空窗
+        web.setBackgroundColor(Color.parseColor("#F5F0E6"))
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -54,6 +66,21 @@ class BiliAuthActivity : AppCompatActivity() {
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(web, true)
         }
+        // 转圈盖层：首帧 onPageFinished 隐（B站 PC 授权页重 JS，慢网首帧可达数秒）
+        val spinner = ProgressBar(this).apply {
+            isIndeterminate = true
+            val dp = (resources.displayMetrics.density * 4).toInt()
+            setPadding(dp, dp, dp, dp)
+        }
+        val root = FrameLayout(this)
+        root.addView(
+            web,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        )
+        root.addView(
+            spinner,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER)
+        )
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val host = request.url.host?.lowercase() ?: return true
@@ -76,10 +103,18 @@ class BiliAuthActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
+                spinner.visibility = View.GONE
                 CookieManager.getInstance().flush() // M189e：立刻落盘
             }
+
+            override fun onReceivedError(
+                view: WebView, request: WebResourceRequest, error: WebResourceError
+            ) {
+                // 主框架加载失败（断网/被墙）立即收屏报错——不悬停在转圈上
+                if (request.isForMainFrame) finishWith(false)
+            }
         }
-        setContentView(web)
+        setContentView(root)
         web.loadUrl(url)
     }
 

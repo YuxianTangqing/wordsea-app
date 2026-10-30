@@ -13,4 +13,15 @@
     <style name="Theme.App.SplashScreen" parent="AppTheme">
         <item name="android:windowBackground">@drawable/splashscreen_window</item>
     </style>
+
+    <!-- 批③R：BiliAuthActivity 专用透明主题。此前清单挂框架 Theme.Translucent.NoTitleBar，
+         而 Activity 是 AppCompatActivity——AppCompatDelegate 在 setContentView 时必抛
+         "You need to use a Theme.AppCompat theme"（运行时才炸，编译全绿）＝点 B站必崩
+         进程（真机报障「卡住没反应」根因）。本主题=AppCompat 族+透明窗，合法组合。
+         （WXEntryActivity=普通 Activity+框架主题是合法组合，勿动。） -->
+    <style name="Theme.App.Translucent" parent="AppTheme">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 </resources>
