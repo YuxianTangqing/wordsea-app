@@ -64,6 +64,11 @@ android {
 dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+    // 批④（2026-10-30）：T1 原生页两件——RecyclerView 列表体系 + Coil 图片加载
+    // （2.x 非 3.x：3.x 要 2.x 工具链语法重写；2.7 与 OkHttp 4.12 同轴，consumer
+    // proguard 自带，封面/头像量级不必手写 LruCache）。
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("io.coil-kt:coil:2.7.0")
     // 批③（2026-10-30）：原生登录四件
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // 微信 OpenSDK（Maven Central，aliyun public 代理可达）

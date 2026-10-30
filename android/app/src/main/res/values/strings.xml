@@ -36,4 +36,149 @@
     <string name="login_wechat_missing">未安装微信，无法使用微信登录</string>
     <string name="login_in_progress">正在登录…</string>
     <string name="bili_auth_title">B站授权</string>
+
+    <!-- 批④ T1 原生页通用件 -->
+    <string name="state_retry">点击重试</string>
+    <string name="paged_retry">加载失败，点击重试</string>
+    <string name="paged_end">— 已经到底了 —</string>
+    <string name="net_error">网络开小差了，请重试</string>
+    <string name="empty_retry">暂无内容</string>
+
+    <!-- 批④ 五 tab -->
+    <string name="tab_shelf">书架</string>
+    <string name="tab_studio">写作</string>
+    <string name="tab_library">小说库</string>
+    <string name="tab_forum">社区</string>
+    <string name="tab_mine">我的</string>
+
+    <!-- 批④ 书架 tab -->
+    <string name="shelf_title">书架</string>
+    <string name="shelf_guest_hint">登录后你的书架、阅读进度与签到都会在这里</string>
+    <string name="shelf_guest_login">去登录</string>
+    <string name="shelf_empty">书架还是空的，去书库挑一本吧</string>
+    <string name="shelf_goto_library">去书库逛逛</string>
+    <string name="shelf_reading_report">阅读报告</string>
+    <string name="shelf_continue_reading">继续阅读</string>
+    <string name="shelf_removed">已移出书架</string>
+    <string name="shelf_added">已加入书架</string>
+    <string name="shelf_chapter_fmt">读到 第%1$d章</string>
+    <string name="shelf_left_time_fmt">约剩 %1$s</string>
+
+    <!-- 批④ 签到 -->
+    <string name="checkin_btn">签到</string>
+    <string name="checkin_done_today">今日已签</string>
+    <string name="checkin_streak_fmt">连续 %1$d 天</string>
+    <string name="checkin_success_fmt">签到成功：+%1$d经验 +%2$d墨点</string>
+    <string name="checkin_dup">今天已经签过到了</string>
+    <string name="checkin_tier_title">签到奖励档位</string>
+    <string name="checkin_tier_row_fmt">连续 %1$d 天起：每晓 +%2$d 墨点、+%3$d 侠义</string>
+    <string name="checkin_tier_bonus_fmt">满 %1$d 天当天额外 +%2$d 经验</string>
+    <string name="checkin_next_fmt">再连签 %1$d 天进下一档</string>
+    <string name="checkin_login_first">登录后才能签到</string>
+
+    <!-- 批④ 书库 tab -->
+    <string name="library_segment_novels">小说</string>
+    <string name="library_segment_articles">文章</string>
+    <string name="library_segment_classics">公版</string>
+    <string name="library_search_hint">搜书名 / 作者 / 简介</string>
+    <string name="library_sort_latest">最新入库</string>
+    <string name="library_sort_updated">最近更新</string>
+    <string name="library_sort_views">最多阅读</string>
+    <string name="library_sort_bookmarks">最多收藏</string>
+    <string name="library_sort_catalog">馆藏序</string>
+    <string name="library_empty">没有符合条件的作品</string>
+
+    <!-- 批④ 书籍详情 -->
+    <string name="detail_chapters">目录</string>
+    <string name="detail_reviews">书评</string>
+    <string name="detail_start_reading">开始阅读</string>
+    <string name="detail_continue_reading">继续阅读</string>
+    <string name="detail_add_shelf">加书架</string>
+    <string name="detail_in_shelf">已在书架</string>
+    <string name="detail_like">点赞</string>
+    <string name="detail_urge">催更</string>
+    <string name="detail_urge_done">已催更</string>
+    <string name="detail_review_write">写书评（网页版）</string>
+    <string name="detail_reviews_empty">还没有书评</string>
+    <string name="detail_words_fmt">%1$s 万字</string>
+    <string name="detail_views_fmt">%1$s 阅读</string>
+    <string name="detail_serializing">连载中</string>
+    <string name="detail_finished">已完结</string>
+    <string name="detail_chapter_fmt">共 %1$d 章</string>
+    <string name="detail_urge_ok">催更成功，感谢支持</string>
+    <string name="detail_urge_dup">今天已经催过了</string>
+    <string name="detail_login_first">登录后再操作</string>
+
+    <!-- 批④ 论坛 -->
+    <string name="forum_title">社区</string>
+    <string name="forum_hot_today">今日热帖</string>
+    <string name="forum_hot_week">本周热帖</string>
+    <string name="forum_hot_month">本月热帖</string>
+    <string name="forum_latest_replies">最新回复</string>
+    <string name="forum_boards">版块</string>
+    <string name="forum_today_fmt">今日 +%1$d</string>
+    <string name="forum_essence_link">精华聚合</string>
+    <string name="board_new_post">发帖</string>
+    <string name="board_sort_reply">最新回复</string>
+    <string name="board_sort_new">最新发布</string>
+    <string name="board_sort_hot">最热</string>
+    <string name="board_essence_only">只看精华</string>
+    <string name="board_empty">板块里还没有帖子</string>
+    <string name="post_reply_hint">友善回帖，理性讨论</string>
+    <string name="post_reply_send">发送</string>
+    <string name="post_reply_ok">回帖成功</string>
+    <string name="post_reply_empty">说点什么再发送吧</string>
+    <string name="post_sort_hot">热门</string>
+    <string name="post_sort_time">时间</string>
+    <string name="post_reply_to_fmt">回复 %1$s：</string>
+    <string name="post_floor_fmt">%1$d 楼</string>
+    <string name="post_op">楼主</string>
+
+    <!-- 批④ 搜索 -->
+    <string name="search_title">搜索</string>
+    <string name="search_hint">搜书 / 文章 / 帖子 / 用户</string>
+    <string name="search_tab_novels">小说</string>
+    <string name="search_tab_articles">文章</string>
+    <string name="search_tab_posts">帖子</string>
+    <string name="search_tab_users">用户</string>
+    <string name="search_empty_q">输入关键词开始搜索</string>
+    <string name="search_no_result">没有找到相关内容</string>
+
+    <!-- 批④ 通知 -->
+    <string name="notifications_title">通知</string>
+    <string name="notifications_tab_all">全部</string>
+    <string name="notifications_tab_interactions">互动</string>
+    <string name="notifications_tab_works">作品</string>
+    <string name="notifications_tab_system">系统</string>
+    <string name="notifications_mark_all">全部已读</string>
+    <string name="notifications_clear_read">清空已读</string>
+    <string name="notifications_empty">没有通知</string>
+    <string name="notifications_login_hint">登录后查看你的通知</string>
+    <string name="notifications_cleared">已清空 %1$d 条已读</string>
+
+    <!-- 批④ 邀请落地 -->
+    <string name="invite_title">邀请函</string>
+    <string name="invite_valid_fmt">%1$s 邀请你加入四海书盟</string>
+    <string name="invite_benefit_1">受邀注册：侠义值 70 起步</string>
+    <string name="invite_benefit_2">见面礼 10 墨点</string>
+    <string name="invite_benefit_3">注册后 10 分钟内输入邀请码生效</string>
+    <string name="invite_invalid">邀请链接已失效，可直接普通注册</string>
+    <string name="invite_register">接受邀请，去注册</string>
+    <string name="invite_register_plain">直接注册</string>
+
+    <!-- 批④ 资料编辑 -->
+    <string name="profile_title">编辑资料</string>
+    <string name="profile_username">用户名</string>
+    <string name="profile_nickname">昵称</string>
+    <string name="profile_penname">笔名</string>
+    <string name="profile_bio">简介</string>
+    <string name="profile_bio_hint">一句话介绍自己（支持 Markdown）</string>
+    <string name="profile_save">保存</string>
+    <string name="profile_saved">已保存</string>
+    <string name="profile_review_pending">名称变更需审核，通过前展示原值</string>
+    <string name="profile_review_withdraw">撤回在审申请</string>
+    <string name="profile_check_ok">可以使用</string>
+    <string name="profile_check_taken">已被使用</string>
+    <string name="profile_checking">检查中…</string>
+    <string name="profile_name_limit">每月改名次数有限，改名会送审</string>
 </resources>
