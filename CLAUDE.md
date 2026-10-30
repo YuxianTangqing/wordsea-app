@@ -11,6 +11,19 @@
 
 - **批② 骨架+基建移植（已落）**：轻壳 817 行 MainActivity 按 core 分层拆为四控制器，
   行为与壳 1.1.9 严格等价（单 Activity+单 WebView 恒指线上站）。
+  - 2026-10-30 真机验收修复：`setVolumePaging` 桥方法曾编译成**自递归**（构造参数
+    属性与方法同名，Kotlin 解析「同名函数优先于 invoke 约定」）→ 阅读器挂载即
+    StackOverflowError → 网页 error.tsx 死循环（壳正常因 inner class 直写字段）。
+    已改名 `onVolumePagingChange` 根治（a9fdde8）；**桥方法凡经 lambda 间接层必查
+    同名自调用**，诊断法=雷电装同签名调试包（临时 `setWebContentsDebuggingEnabled`）
+    + `window.__wsShell` 换记录型 Proxy（桥对象本身只读不可包，window 引用可换）。
+  - 2026-10-30 二验「翻页模式音量键失效」：**原生侧无责**（拦截/转发全链 CDP 实证
+    正常，音量指数不变=确实吞键）。根因=web 仓手机设置面板僵尸态：面板内嵌手机
+    浮层，翻页/滚动/中屏点按收浮层只 `setChromeOpen(false)` 不关 `settingsOpen`
+    → `chapterNavAllowed`/`paused` 恒拦音量键/空格/←→（手机无 Esc 可解）。旧壳
+    「无问题」是错觉（翻页设置早已在 localStorage，没经设置舞步）。修复在
+    wordsea 仓 ReaderShell（浮层收起一并复位面板态），随下窗部署生效；APP 无需
+    重装。归因法：真按键 vs 手动调 handler 对拍→Escape 解卡实验→逐步舞步复现。
 - 批③ 四家登录：`social/` 四适配器（微信 SendAuth/QQ tauth/支付宝 OpenAuthTask/
   B站 WebView 授权页沿用旧网页 client_id）+ web 仓新端点 `/api/auth/app-social/sign-in`。
 - 批④ T1 原生页：`ui/` 18-20 页（书架/书库/详情/论坛/搜索/通知/签到/我的）+
