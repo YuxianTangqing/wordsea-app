@@ -79,6 +79,9 @@ class MainActivity : AppCompatActivity() {
     private var webLoginFallback = false
     /** 原生登录屏在前（loginLauncher 已发未收）——防重复拉起。 */
     private var nativeLoginShowing = false
+    /** 批③R-b 接管遮罩：软导航驶入登录页的瞬间置起（与首载遮罩同一张品牌加载遮罩），
+     *  挡掉「网页登录页渲染帧→原生屏落座」之间的闪现；登录屏回结果即撤。 */
+    private var takeoverCover = false
 
     // ── M247 音量键翻页：web 侧（阅读器挂载且听书未播）经 __wsShell.setVolumePaging(true)
     //    声明接管才拦键；默认 false＝旧网页/非阅读器页面音量键归系统。@Volatile：
@@ -120,6 +123,8 @@ class MainActivity : AppCompatActivity() {
     private val loginLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             nativeLoginShowing = false
+            takeoverCover = false
+            updateUi() // 取消路径无后续页面事件兜底，遮罩必须在此显式撤
             if (result.resultCode == RESULT_OK && this::webView.isInitialized) webView.reload()
         }
 
@@ -346,6 +351,10 @@ class MainActivity : AppCompatActivity() {
             if (isReload || webLoginFallback || nativeLoginShowing) return
             if (u.host?.lowercase() !in SiteConfig.SITE_HOSTS) return
             nativeLoginShowing = true
+            // 批③R-b：软导航页面已驶入（Link 预取=RSC 秒到，登录页先渲染）而原生屏
+            // 窗口动画还在路上——同帧盖品牌加载遮罩挡掉中间闪现帧（硬导航路径
+            // return true 已取消加载无闪现，不盖）。
+            if (bounce) takeoverCover = true
             loginLauncher.launch(Intent(this, LoginActivity::class.java))
             if (bounce) evalJs("location.replace(${JSONObject.quote(SiteConfig.SITE_URL)});")
         } else if (!path.startsWith("/auth/")) {
@@ -470,8 +479,11 @@ class MainActivity : AppCompatActivity() {
     private fun updateUi() {
         progressBar.progress = progress
         progressBar.visibility = if (!errorActive && progress < 100) View.VISIBLE else View.GONE
+        // takeoverCover：批③R-b 接管过渡遮罩（与首载同一张品牌遮罩）
         loadingOverlay.visibility =
-            if (!errorActive && !loadedOnce && progress < 100) View.VISIBLE else View.GONE
+            if (!errorActive && (takeoverCover || (!loadedOnce && progress < 100)))
+                View.VISIBLE
+            else View.GONE
         errorOverlay.visibility = if (errorActive) View.VISIBLE else View.GONE
         errorBackBtn.visibility = if (canGoBack) View.VISIBLE else View.GONE
         val host = extHost
