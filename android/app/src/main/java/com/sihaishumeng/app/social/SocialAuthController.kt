@@ -14,14 +14,14 @@ import org.json.JSONObject
  * - QQ：SDK 回调直接给 accessToken+openid 上送（unionid 由服务端 /me 复核+获取）
  * - B站：零 SDK——先 POST /sign-in/social 拿授权 url，BiliAuthActivity（WebView）
  *   走完整网页回调链（审计/邀请归因全在服务端 after-hook，M340 链路原样）
- * - 支付宝：AAR 待站长下载落地（build.gradle 注释位 + social/AlipayAuth 预留）
+ * - 支付宝：官方 SDK（Maven 15.8.42）OpenAuthTask 拉起，auth_code 上送换 user_id
  *
  * QQ 裂号防线：服务端按 Account.unionid 反查（一次性迁移脚本+网页登录惰性回填）；
  * 未命中直接开新号（批③ 站主裁定：与微信/支付宝同构，裂号残余可接受）。
  */
 class SocialAuthController(private val activity: Activity) {
 
-    enum class Provider { WECHAT, QQ, BILIBILI }
+    enum class Provider { WECHAT, QQ, BILIBILI, ALIPAY }
 
     interface Callback {
         /** [ok]=登录成功（会话 cookie 已落 CookieManager）；[message] 失败时给用户看。 */
@@ -36,6 +36,7 @@ class SocialAuthController(private val activity: Activity) {
         Provider.WECHAT -> WechatAuth.isInstalled(activity)
         Provider.QQ -> true // open-sdk 内置 WAP 兜底（未装手机QQ也能登）
         Provider.BILIBILI -> true
+        Provider.ALIPAY -> true // SDK 第 5 参 true=未装支付宝走内置 H5 中转页
     }
 
     fun start(provider: Provider, invite: String?, cb: Callback) {
@@ -67,6 +68,13 @@ class SocialAuthController(private val activity: Activity) {
                 }
             }
             Provider.BILIBILI -> startBili()
+            Provider.ALIPAY -> AlipayAuth.signIn(activity) { authCode, message ->
+                // 回调线程无主线程承诺——runOnUiThread 收口（主线程调用=立即执行）
+                activity.runOnUiThread {
+                    if (authCode != null) signInApp("alipay", JSONObject().put("code", authCode))
+                    else finish(false, message)
+                }
+            }
         }
     }
 

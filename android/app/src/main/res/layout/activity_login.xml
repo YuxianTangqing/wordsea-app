@@ -109,12 +109,22 @@
             android:id="@+id/btnBili"
             android:layout_width="0dp"
             android:layout_height="44dp"
+            android:layout_marginEnd="8dp"
             android:layout_weight="1"
             android:background="@drawable/btn_outline"
             android:text="@string/login_social_bili"
             android:textColor="@color/ink"
             android:textSize="14sp" />
-        <!-- 支付宝按钮位：openauthsdk AAR 落地后加入（第 4 枚等宽） -->
+
+        <Button
+            android:id="@+id/btnAlipay"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_outline"
+            android:text="@string/login_social_alipay"
+            android:textColor="@color/ink"
+            android:textSize="14sp" />
     </LinearLayout>
 
     <TextView

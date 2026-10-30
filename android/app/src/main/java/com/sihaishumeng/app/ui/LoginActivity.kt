@@ -27,7 +27,7 @@ import org.json.JSONObject
  *   → 原文重试 email 端点，捞用户名形似手机的存量号）。成功判据=200 且响应带
  *   token（better-auth 错误形态恒 4xx+{error}）；会话 cookie 由 WebViewCookieJar
  *   自动落 CookieManager，长尾 WebView 即刻共享。
- * - 四家社交：SocialAuthController（微信/QQ SDK 拉起、B站授权屏；支付宝待 AAR）。
+ * - 四家社交：SocialAuthController（微信/QQ/支付宝 SDK 拉起、B站授权屏）。
  * - 邀请码：折叠输入，随社交开号上送（服务端先验码再开号——M340 教训）。
  * - 注册（邮箱验证链）/找回密码/网页版登录：回主 WebView 原址（loadUrl 不经
  *   shouldOverrideUrlLoading=不会被本屏接管逻辑再拦）。
@@ -81,6 +81,7 @@ class LoginActivity : AppCompatActivity(), SocialAuthController.Callback {
         findViewById<Button>(R.id.btnWechat).setOnClickListener { startSocial(SocialAuthController.Provider.WECHAT) }
         findViewById<Button>(R.id.btnQq).setOnClickListener { startSocial(SocialAuthController.Provider.QQ) }
         findViewById<Button>(R.id.btnBili).setOnClickListener { startSocial(SocialAuthController.Provider.BILIBILI) }
+        findViewById<Button>(R.id.btnAlipay).setOnClickListener { startSocial(SocialAuthController.Provider.ALIPAY) }
 
         findViewById<TextView>(R.id.tvWebLogin).setOnClickListener { openInWebView(SiteConfig.NATIVE_LOGIN_PATH) }
         findViewById<TextView>(R.id.tvRegister).setOnClickListener { openInWebView("/auth/register") }

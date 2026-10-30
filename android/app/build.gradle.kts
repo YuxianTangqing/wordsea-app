@@ -72,7 +72,9 @@ dependencies {
     // 拉取（2021 lastUpdated）。真机若遇 2024-06 平台政策不兼容 → 换 wiki.connect.qq.com
     // 手动 open_sdk_3.5.17_lite.jar 入 libs/ 并删此行（API 面兼容）。
     implementation("com.tencent.tauth:qqopensdk:3.53.0")
-    // 支付宝 OpenAuth 极简版 AAR 无任何 maven 托管（官方文档中心手动下载）——
-    // 站长下载 openauthsdk AAR 放入 libs/ 后解除下行注释并建 social/AlipayAuth.kt
-    // implementation(files("libs/openauthsdk.aar"))
+    // 支付宝 App 登录：官方 SDK 自 15.8.09 起 Maven 分发（Maven Central，aliyun
+    // public 代理同步）——原「极简版 AAR 手动下载」待办作废（15.8.42 全量仅 460KB，
+    // consumer proguard 随 AAR 自动生效；回跳接收器 AlipayResultActivity 声明在 AAR
+    // manifest 内，走显式组件不占 sihaishumeng scheme）。
+    implementation("com.alipay.sdk:alipaysdk-android:15.8.42")
 }

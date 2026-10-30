@@ -17,6 +17,11 @@
 -keep class com.tencent.open.** { *; }
 -keep class com.tencent.tauth.** { *; }
 -dontwarn com.tencent.**
+# 批③ 支付宝（AAR 自带 consumer 规则已 keep 支付/内部件；显式兜底登录入口——
+# 静态回调表+反射味分发，防 optimize 剥我们的回调路径，代价≈9KB）
+-keep class com.alipay.sdk.app.OpenAuthTask { *; }
+-keep class com.alipay.sdk.app.OpenAuthTask$* { *; }
+-dontwarn org.apache.http.**
 # 批③ okhttp/okio：R8 自带规则，仅消预警
 -dontwarn okhttp3.**
 -dontwarn okio.**

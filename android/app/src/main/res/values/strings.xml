@@ -25,6 +25,7 @@
     <string name="login_social_wechat">微信</string>
     <string name="login_social_qq">QQ</string>
     <string name="login_social_bili">B站</string>
+    <string name="login_social_alipay">支付宝</string>
     <string name="login_invite_toggle">有邀请码？</string>
     <string name="login_invite_hint">邀请码（邀请人的 UID 数字）</string>
     <string name="login_link_web">网页版登录</string>

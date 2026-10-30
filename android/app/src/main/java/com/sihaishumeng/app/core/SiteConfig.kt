@@ -24,7 +24,11 @@ object SiteConfig {
     // 本仓零密钥铁律）。B站零 appid：原生走网页流（client_id 在服务端）。
     const val WECHAT_APP_ID = "wxd3b4d2acfec510e2"
     const val QQ_APP_ID = "1905824730"
-    const val ALIPAY_APP_ID = "2021007110603730" // AAR 落地后启用（build.gradle 注释位）
+    const val ALIPAY_APP_ID = "2021007110603730"
+    // 支付宝 SDK 回跳 scheme：传给 OpenAuthTask.execute 首参（H5 中转链回跳 URI 用）。
+    // 与自更新共用 sihaishumeng——原生回跳走 SDK 自带 AlipayResultActivity 显式组件，
+    // 不经 scheme 解析，二者无冲突。
+    const val ALIPAY_SCHEME = "sihaishumeng"
 
     // 批③ 原生登录屏接管路由（批④ 正式路由表前哨；LoginActivity 内置「网页版登录」
     // 回退原址，行为可逆）

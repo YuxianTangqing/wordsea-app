@@ -31,9 +31,13 @@
   - `social/`：SocialAuthController 编排 + WechatAuth（SendAuth，state 回校）+
     QqAuth（tauth，IUiListener **成员持有**防弱引用丢回调+onActivityResult 必回灌）+
     BiliAuthActivity（零 SDK——/sign-in/social 拿 url 后 WebView 走完整网页回调链，
-    嗅探「站内非 /api/auth/ 页」即收）。支付宝=openauthsdk AAR **无任何 maven 托管**
-    → 站主从支付宝文档中心下载放 `libs/`、解注释 build.gradle 依赖行、补
-    `AlipayAuth.kt`（SiteConfig 已备 appid 常量）。
+    嗅探「站内非 /api/auth/ 页」即收）+ AlipayAuth（官方 SDK **Maven 分发**
+    `com.alipay.sdk:alipaysdk-android:15.8.42`——原「极简版 AAR 手动下载」待办
+    作废：15.8.09 起官方弃手动 AAR，全量仅 460KB、R8 后 APK 仅 +127KB；契约=
+    `execute(scheme, BizType.AccountAuth, bizParams{url=authweb…auth_type=PURE_OAUTH_SDK},
+    callback, true)`，回调码 OK=9000/NOT_INSTALLED=4001/Duplex=5000，Bundle 直取
+    `auth_code`；回跳接收器 AlipayResultActivity 在 AAR manifest 自带（exported
+    显式组件回跳，不占 sihaishumeng scheme）——商户侧零 manifest 配置）。
   - `wxapi/WXEntryActivity`：微信回跳硬契约（包名 {applicationId}.wxapi、exported、
     无 intent-filter——错一字回调静默不达）。
   - `ui/LoginActivity`：原生登录屏（/auth/login 由 MainActivity 拦截接管——只拦
@@ -49,8 +53,6 @@
     网页流惰性回填（qq-provider，带回填冲突守卫防双号 split-brain）。
   - ⭐坑记：Kotlin 块注释**可嵌套**——注释里写「/api/auth/*」会多开一层注释致
     Unclosed comment（BiliAuthActivity 实录）。
-- 批④ T1 原生页：`ui/` 18-20 页（书架/书库/详情/论坛/搜索/通知/签到/我的）+
-  `core/web` 路由表非白名单一律 WebView 兜底。
 - 批④ T1 原生页：`ui/` 18-20 页（书架/书库/详情/论坛/搜索/通知/签到/我的）+
   `core/web` 路由表非白名单一律 WebView 兜底。
 - 批⑤ v2.0 首发：服务器双名 APK + web 仓 site.ts 版本**与 APK 上传同批**；壳仓归档。
@@ -82,7 +84,9 @@ cd android && ./gradlew.bat assembleRelease
 ```
 产物 `app/build/outputs/apk/release/app-release.apk`（批⑤ 起按轻壳「出包四步」走：
 版本递增→双名上传→site.ts ?v= 同步→真机回归）。签名件 gitignore（keystore.properties+
-app/sihaishumeng-release.jks，从仓外 `APP签名钥匙\` ASCII 副本拷入）。
+app/sihaishumeng-release.jks，从仓外 `APP签名钥匙\` ASCII 副本拷入）。local.properties
+（sdk.dir 指向上行 android-sdk）同 gitignore，2026-10-30 曾失踪致 SDK location 报错——
+重建即可。
 
 ## 验收
 
