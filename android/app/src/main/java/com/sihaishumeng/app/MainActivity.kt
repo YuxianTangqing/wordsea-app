@@ -108,12 +108,19 @@ class MainActivity : AppCompatActivity() {
         }
 
     // 批④W 桥面社交登录：网页登录页四家按钮经 __wsShell.socialLogin 进来，结果 JSON
-    // 经 window[callbackName](json) 回呼网页（JSON 直作 JS 对象字面量注入）
+    // 经 window[callbackName]("<json 字符串>") 回呼网页。批⑤R 归一 string 契约——
+    // 批④W 起把 JSONObject 裸内插进实参位（求值成 JS 对象），web 侧旧版按 string
+    // JSON.parse 必炸=首发「登录回调异常，请重试」根因（cookie 已种、刷新即登录）。
+    // 现 quote(json) 产出 JS 字符串字面量注入；U+2028/2029 手工封死——JSONObject.quote
+    // 不转义它们（JSON 合法），却是 JS 字符串字面量的非法裸字符（唯一残余缝）。
     private fun handleSocialLogin(provider: String, optionsJson: String, callbackName: String) {
         socialAuth.startForWeb(provider, optionsJson) { json ->
+            val payload = JSONObject.quote(json.toString())
+                .replace(0x2028.toChar().toString(), "\\u2028")
+                .replace(0x2029.toChar().toString(), "\\u2029")
             evalJs(
                 "window[${JSONObject.quote(callbackName)}] && " +
-                    "window[${JSONObject.quote(callbackName)}]($json);"
+                    "window[${JSONObject.quote(callbackName)}]($payload);"
             )
         }
     }

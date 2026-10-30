@@ -25,10 +25,13 @@ object SiteConfig {
     const val WECHAT_APP_ID = "wxd3b4d2acfec510e2"
     const val QQ_APP_ID = "1905824730"
     const val ALIPAY_APP_ID = "2021007110603730"
-    // 支付宝 SDK 回跳 scheme：传给 OpenAuthTask.execute 首参（H5 中转链回跳 URI 用）。
-    // 与自更新共用 sihaishumeng——原生回跳走 SDK 自带 AlipayResultActivity 显式组件，
-    // 不经 scheme 解析，二者无冲突。
-    const val ALIPAY_SCHEME = "sihaishumeng"
+    // 支付宝 SDK 回跳 scheme（批⑤R）：传给 OpenAuthTask.execute 首参，支付宝 App 授权完
+    // 按它拼隐式 intent 回跳到 manifest 里 AlipayResultActivity 的同 scheme filter（原生
+    // 钱包与 H5 中转两链共用）。⚠️ 必须**独立于** MainActivity 的 sihaishumeng——两个
+    // activity 声明同一 scheme=隐式 intent 二义。批⑤ 首发曾沿用 sihaishumeng 且未给
+    // AlipayResultActivity 声明 filter：回跳落 Main 后 SDK 静态回调表永不触发=「支付宝
+    // 跳转不回来」+ busy 永卡根因（AAR 内该 activity 零 filter，须商户自声明）。
+    const val ALIPAY_SCHEME = "sihaishumengalipay"
 
     // M188f 恒桌面 UA。尾标 SiHaiShuMengShell/1.1 是「代际标识」非版本号（改它=QQ
     // 授权链重测面），Kotlin 壳恒 1.1。M-APP15 起具体版本经 __wsShell JS 桥暴露

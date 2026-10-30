@@ -32,8 +32,17 @@ class SocialAuthController(private val activity: Activity) {
 
     enum class Provider { WECHAT, QQ, BILIBILI, ALIPAY }
 
+    private companion object {
+        /** 僵尸熔断窗口（与 web 侧 180s 超时同口径） */
+        private const val BUSY_ZOMBIE_MS = 180_000L
+    }
+
     /** 同一时刻至多一条登录在途（网页社交钮 loading 态即互斥闸；busy 回 BUSY）。 */
     private var busy = false
+    /** 批⑤R 僵尸熔断：busy 起算时刻（elapsedRealtime 防时钟回跳）。emit 永不回呼的
+     *  断链（如批⑤ 支付宝回跳无 filter 接收）会让 busy 永卡——四家按钮全 BUSY 静默
+     *  直到杀 APP。超 180s（与 web 侧超时同口径）视为僵尸，清态放行新请求。 */
+    private var busyAt = 0L
     private var invite: String? = null
     private var emit: ((JSONObject) -> Unit)? = null
 
@@ -59,14 +68,21 @@ class SocialAuthController(private val activity: Activity) {
             }
         }
         if (busy) {
-            emit(resultJson(ok = false, code = "BUSY"))
-            return
+            if (android.os.SystemClock.elapsedRealtime() - busyAt < BUSY_ZOMBIE_MS) {
+                emit(resultJson(ok = false, code = "BUSY"))
+                return
+            }
+            // 僵尸态：上一条在途的回呼永不到达（断链/进程级丢失）——清态放行本次请求
+            // （emit=参数遮蔽名；置空成员须 this.）
+            busy = false
+            this.emit = null
         }
         if (provider == Provider.WECHAT && !isAvailable(provider)) {
             emit(resultJson(ok = false, code = "AUTH", message = "未安装微信客户端，无法使用微信登录"))
             return
         }
         busy = true
+        busyAt = android.os.SystemClock.elapsedRealtime()
         this.invite = runCatching { JSONObject(optionsJson).optString("invite") }.getOrNull()
             ?.trim()?.takeIf { it.isNotEmpty() }
         this.emit = emit

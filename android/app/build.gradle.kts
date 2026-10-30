@@ -26,8 +26,12 @@ android {
         // 批② 2.0.0 (15)：wordsea-app 原生工程起线——壳基建 817 行按 core 分层移植
         //   （bridge/web/update/device 四控制器），行为与壳 1.1.9 等价；五 tab 与
         //   social/ ui/ 目录预留待批③④填充。
-        versionCode = 15
-        versionName = "2.0.0"
+        // 批⑤R 2.0.1 (16)：首发返修——支付宝授权回跳根治（manifest 补 AlipayResultActivity
+        //   scheme filter + 独立 scheme sihaishumengalipay）+ 社交回呼归一 string 契约
+        //   （quote 注入；2.0.0 对象直传致 web JSON.parse 必炸=「登录回调异常」）+ busy
+        //   僵尸熔断（180s）。
+        versionCode = 16
+        versionName = "2.0.1"
     }
 
     signingConfigs {
