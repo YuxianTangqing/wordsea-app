@@ -108,6 +108,13 @@ class MainActivity : AppCompatActivity() {
             fileChooserCallback = null
         }
 
+    // 批③：登录屏 RESULT_OK=已登入——重载当前页让登录态立即可见（cookie 在共享
+    // CookieManager，重载即带）
+    private val loginLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK && this::webView.isInitialized) webView.reload()
+        }
+
     /** 主线程 JS 注入唯一出口（各控制器经此回呼；webView 未初始化=静默丢弃，
      *  与壳 1.1.9 的 isInitialized 守卫同语义） */
     private fun evalJs(js: String) {
@@ -253,7 +260,7 @@ class MainActivity : AppCompatActivity() {
             if (host != null && host in SiteConfig.SITE_HOSTS && path == SiteConfig.NATIVE_LOGIN_PATH) {
                 val currentPath = view.url?.let { runCatching { Uri.parse(it).path }.getOrNull() }
                 if (currentPath != SiteConfig.NATIVE_LOGIN_PATH) {
-                    startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                    loginLauncher.launch(Intent(this@MainActivity, LoginActivity::class.java))
                     return true
                 }
                 return false

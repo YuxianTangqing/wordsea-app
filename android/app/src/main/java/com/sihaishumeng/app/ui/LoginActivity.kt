@@ -117,6 +117,7 @@ class LoginActivity : AppCompatActivity(), SocialAuthController.Callback {
             when {
                 code == 200 && json != null && !json.has("error") -> {
                     Toast.makeText(this, R.string.login_success, Toast.LENGTH_SHORT).show()
+                    setResult(RESULT_OK) // MainActivity 收到即 reload 当前页显登录态
                     finish()
                 }
                 code in 400..499 -> {
@@ -149,6 +150,7 @@ class LoginActivity : AppCompatActivity(), SocialAuthController.Callback {
     override fun onSocialResult(ok: Boolean, message: String?) {
         if (ok) {
             Toast.makeText(this, R.string.login_success, Toast.LENGTH_SHORT).show()
+            setResult(RESULT_OK) // MainActivity 收到即 reload 当前页显登录态
             finish()
         } else {
             setStatus(message ?: "登录失败")
