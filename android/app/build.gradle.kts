@@ -79,8 +79,14 @@ android {
         //   web 侧配套=AppDownloadCta 对有桥 <2.0.9 版本加一次性手动安装提示（自举
         //   困境交底：修复在「被升级到的版本」里，2.0.8→2.0.9 那步必手动，此后恢复
         //   自动）。批⑧ SDK 顺延 26/2.0.11。
-        versionCode = 25
-        versionName = "2.0.10"
+        // 批⑨R8 2.0.11 (26)：站主令「朗读声音里选出音色（换思路）」——厂商引擎发音人
+        //   不经 getVoices() 暴露（平台限制，R5~R7 三轮实证），改 setPitch 声线档
+        //   承接（全引擎通用）：下拉=引擎/音色/声线三族（声线·低沉 0.7/明亮 1.3/
+        //   尖细 1.6），单选语义（真音色选中=声线回中性；空串=全重置治 pitch 残留）；
+        //   ⭐直达链 ttsOpenVoiceSettings 随站主令退役（站主 ROM 无 TTS 深链+引擎无
+        //   launcher=落输入法页无用）。批⑧ SDK 顺延 27/2.0.12。
+        versionCode = 26
+        versionName = "2.0.11"
     }
 
     signingConfigs {

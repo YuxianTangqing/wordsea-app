@@ -2,10 +2,8 @@ package com.sihaishumeng.app.core.bridge
 
 import android.Manifest
 import android.app.Activity
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import android.provider.Settings
 import android.webkit.JavascriptInterface
 import com.sihaishumeng.app.core.device.KeyboardInsetController
 import com.sihaishumeng.app.core.tts.TtsEngineHolder
@@ -17,9 +15,10 @@ import com.sihaishumeng.app.core.tts.TtsSessionManager
  * 转打进程级 TtsEngineHolder，签名/返回语义不变），web 层零改动同时适配轻壳与
  * 本原生工程。批④W 第 9 方法 socialLogin（登录页网页化）；批⑨ 新增会话五法
  * （ttsStartSession/ttsControl/ttsSessionState/ttsVoices/ttsSetVoice——听书会话
- * 下沉原生前台服务+音色选择）；批⑨R5 新增 ttsOpenVoiceSettings（系统语音设置页
- * 一键直达——厂商引擎专有发音人不经 getVoices() 暴露的唯一正路）——增量不在冻结
- * 列，web 特征探测（typeof）回落旧逐块模式=双向部署安全。
+ * 下沉原生前台服务+音色选择）——增量不在冻结列，web 特征探测（typeof）回落旧
+ * 逐块模式=双向部署安全。批⑨R5~R7 的 ttsOpenVoiceSettings（系统语音设置直达）
+ * R8 随站主令退役（站主 ROM 无 TTS 深链+引擎无 launcher=落输入法页无用；发音人
+ * 诉求改由 ttsVoices 的 pitch 音调档承接——全引擎通用）。
  *
  * 只暴露只读版本号+声明性动作——授权大域页面（qq/alipay/bilibili/github）拿到的
  * 也只是数字与无副作用的开关。@JavascriptInterface 方法跑在 binder 线程。
@@ -125,44 +124,6 @@ class ShellBridge(
     @JavascriptInterface
     fun ttsSetVoice(voiceId: String): Boolean = TtsEngineHolder.setVoice(voiceId)
 
-    /** 批⑨R5/R6/R7：直达发音人管理（引擎与厂商专有发音人的官方管理口——站主 2.0.8
-     *  实录引擎 voices name 恒 "zh"=发音人列表不经标准 API 暴露，APP 内列出不可能；
-     *  本入口=最短路径）。置位回程标记（MainActivity.onResume 消费：idle 态重 init
-     *  即时生效）。旧 web 特征探测（typeof）自动隐藏入口。binder 线程只做 resolve
-     *  探测，start 走主线程。
-     *  ⭐R7 四级直达链（逐档真机实录收敛）：①TTS 引擎应用本体拉起（getLaunchIntent
-     *  ForPackage——站主引擎 label「语音设置」，国产 TTS 引擎应用界面多含发音人
-     *  管理；无 launcher 落下档）②「android.settings.TTS_SETTINGS」隐藏声明 raw
-     *  串（公开 SDK 无常量，javap 实证；AOSP/部分 ROM 注册=直达）③ACTION_INPUT_
-     *  METHOD_SETTINGS（站主 ROM 实测=输入法页非 TTS，降为末档前备选）④设置主页
-     *  兜底。注：引擎设置页无公开契约（javap 实证 Engine 无 CONFIGURE action、
-     *  ServiceInfo 无 settings 字段）。 */
-    @JavascriptInterface
-    fun ttsOpenVoiceSettings(): Boolean {
-        val ctx = activity.applicationContext
-        val pm = ctx.packageManager
-        val candidates = mutableListOf<Intent>()
-        runCatching {
-            val svc = pm.resolveService(
-                Intent(android.speech.tts.TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE)
-                    .addCategory("android.intent.category.DEFAULT"), 0
-            )?.serviceInfo
-            if (svc != null) {
-                pm.getLaunchIntentForPackage(svc.packageName)?.let { candidates.add(it) }
-            }
-        }
-        candidates.add(Intent("android.settings.TTS_SETTINGS"))
-        candidates.add(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-        candidates.add(Intent(Settings.ACTION_SETTINGS))
-        val chosen = candidates.firstOrNull {
-            runCatching { pm.resolveActivity(it, 0) }.getOrNull() != null
-        } ?: return false
-        TtsEngineHolder.markVoiceSettingsJump()
-        activity.runOnUiThread {
-            runCatching { ctx.startActivity(chosen.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-        }
-        return true
-    }
 
     /** M249 初始同步：页面加载时键盘已开的罕见态（SPA 恢复/换页）。物理 px；0=键盘关。
      *  只读无动作面（与 versionName 同口径，三方页拿到的只是数字）。 */

@@ -50,21 +50,12 @@ object TtsEngineHolder {
     /** 用户音色（跨 reinit 重放；null=自动=引擎默认中文音色） */
     private var currentVoiceId: String? = null
 
-    /** 批⑨R5 系统语音设置跳转回程标记（桥 ttsOpenVoiceSettings 置位；MainActivity
-     *  onResume 消费——idle 态重 init 让系统页换的引擎/默认发音人即时生效，进程级
-     *  实例不缓存旧态；会话播放中不打断） */
-    @Volatile
-    private var voiceSettingsJumpPending = false
-
-    fun markVoiceSettingsJump() {
-        voiceSettingsJumpPending = true
-    }
-
-    fun consumeVoiceSettingsJump(): Boolean {
-        val v = voiceSettingsJumpPending
-        voiceSettingsJumpPending = false
-        return v
-    }
+    /** 批⑨R8 音调（pitch 档）：站主令「朗读声音里选出音色」的换思路承接——多数
+     *  厂商引擎发音人不经 getVoices() 暴露（平台限制），但 setPitch 全引擎通用：
+     *  低沉/明亮/尖细=可感知声线变化。选真音色（voice:）时回 1f；跨引擎切换保留
+     *  （用户意图=声音风格）；speak 队列里紧跟 setSpeechRate 应用（重建后随
+     *  applyVoiceOrLanguage 重放）。 */
+    private var currentPitch = 1f
 
     /** 引擎初始化结果回调（ok=false 时 reason 给 web 提示） */
     private val readyCallbacks = CopyOnWriteArrayList<(Boolean, String) -> Unit>()
@@ -167,6 +158,7 @@ object TtsEngineHolder {
     /** 音色优先（用户选过→voices 里找同 id 重放）；否则 setLanguage(zh) 且检查返回值。
      *  返回 false=引擎读不了中文（换引擎或上报）。 */
     private fun applyVoiceOrLanguage(eng: TextToSpeech): Boolean {
+        runCatching { eng.setPitch(currentPitch) } // 批⑨R8 声线档重放（引擎重建后不丢）
         val vid = currentVoiceId
         if (vid != null) {
             val v = findVoice(eng, vid) // 批⑨R5 复合键精确匹配（name-only 回落兼容存量）
@@ -271,6 +263,11 @@ object TtsEngineHolder {
                     }
             }
         }
+        // 批⑨R8 声线档（引擎无关——setPitch 全引擎通用）：厂商引擎发音人列表拿不到
+        // （平台限制）时，声线变化仍可在 APP 内直达（下拉=引擎/音色/声线三族）
+        out.add("pitch:0.7" to "声线·低沉")
+        out.add("pitch:1.3" to "声线·明亮")
+        out.add("pitch:1.6" to "声线·尖细")
         return out
     }
 
@@ -317,10 +314,33 @@ object TtsEngineHolder {
             reinitTo(ctx, pkg)
             return true
         }
+        // 批⑨R8：空串=全重置（web「自动」档也下发——pitch 残留必须能清）；声线档=
+        // pitch 立即生效+音色回默认语言档（下拉单选语义）。两者先记态再应用——引擎
+        // 未就绪（懒 init 期）也返回 true，初始化时随 applyVoiceOrLanguage 重放
+        if (voiceId.isEmpty() || voiceId.startsWith("pitch:")) {
+            if (voiceId.isEmpty()) {
+                currentVoiceId = null
+                currentPitch = 1f
+            } else {
+                val p = voiceId.removePrefix("pitch:").toFloatOrNull() ?: return false
+                currentPitch = p.coerceIn(0.5f, 2f)
+                currentVoiceId = null
+            }
+            val eng = engine
+            if (eng != null && ready) {
+                runCatching { eng.setPitch(currentPitch) }
+                applyVoiceOrLanguage(eng)
+            }
+            return true
+        }
         val eng = engine ?: return false
         val v = findVoice(eng, voiceId) ?: return false
         val ok = runCatching { eng.setVoice(v) }.getOrDefault(TextToSpeech.ERROR) == TextToSpeech.SUCCESS
-        if (ok) currentVoiceId = voiceId
+        if (ok) {
+            currentVoiceId = voiceId
+            currentPitch = 1f // 真音色选中=声线回中性（单选语义）
+            runCatching { eng.setPitch(1f) }
+        }
         return ok
     }
 
@@ -345,6 +365,7 @@ object TtsEngineHolder {
         main.post {
             val eng = engine ?: return@post
             eng.setSpeechRate(rate)
+            runCatching { eng.setPitch(currentPitch) } // 批⑨R8 声线档（同队列防竞态）
             eng.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)
             // 批⑨R2 完成探测双保险：部分引擎（站主真机兜底引擎实录）onDone 欠奉——
             // 推进死=看门狗 30s 重读循环「不断重复一段」。speak 后轮询 isSpeaking，
