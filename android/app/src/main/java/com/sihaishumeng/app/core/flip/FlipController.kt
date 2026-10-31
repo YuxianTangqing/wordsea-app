@@ -411,28 +411,40 @@ class FlipController(
         viewProvider()?.hide()
     }
 
-    // ══ 拍照（PixelCopy window 版，API 26+） ══
+    // ══ 拍照（PixelCopy window 版，API 26+；失败回退软件绘制——批⑩R 站主 ROM 实录
+    //    PixelCopy 可能失败/超时，软件 draw 慢 50-150ms 但保功能，比永远降级强） ══
+
+    private fun ensureWindowBmp(w: Int, h: Int): Bitmap? {
+        var bmp = windowBmp
+        if (bmp == null || windowW != w || windowH != h) {
+            bmp?.recycle()
+            bmp = try {
+                Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            } catch (_: OutOfMemoryError) {
+                return null
+            }
+            windowBmp = bmp
+            windowW = w
+            windowH = h
+        }
+        return bmp
+    }
 
     private fun startCapture() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return softwareCapture()
         val wv = webViewProvider() ?: return
         val root = wv.rootView
         val w = root.width
         val h = root.height
         if (w <= 0 || h <= 0) return
-        var bmp = windowBmp
-        if (bmp == null || windowW != w || windowH != h) {
-            bmp?.recycle()
-            bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            windowBmp = bmp
-            windowW = w
-            windowH = h
-        }
+        val bmp = ensureWindowBmp(w, h) ?: return onCaptureFailed()
         val token = ++captureToken
         val deadline = Runnable {
             if (captureToken == token) {
                 captureToken = -1
-                onCaptureFailed()
+                // 200ms 超时=PixelCopy 回调不回（OEM 兼容面）——直接转软件绘制
+                android.util.Log.w("FlipBridge", "PixelCopy 超时→软件绘制回退")
+                softwareCapture()
             }
         }
         captureDeadline?.let { mainHandler.removeCallbacks(it) }
@@ -444,12 +456,33 @@ class FlipController(
                     if (captureToken != token) return@post
                     captureDeadline?.let { mainHandler.removeCallbacks(it) }
                     captureToken = -1
-                    if (result == PixelCopy.SUCCESS) onCaptureReady(bmp) else onCaptureFailed()
+                    if (result == PixelCopy.SUCCESS) onCaptureReady(bmp) else {
+                        android.util.Log.w("FlipBridge", "PixelCopy 失败 code=$result→软件绘制回退")
+                        softwareCapture()
+                    }
                 }
             }, mainHandler)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.w("FlipBridge", "PixelCopy 抛异常→软件绘制回退", e)
             captureDeadline?.let { mainHandler.removeCallbacks(it) }
             captureToken = -1
+            softwareCapture()
+        }
+    }
+
+    /** 软件绘制回退：rootView.draw(canvas)（Chromium WebView 支持软件 canvas 输出） */
+    private fun softwareCapture() {
+        try {
+            val wv = webViewProvider() ?: return onCaptureFailed()
+            val root = wv.rootView
+            val bmp = ensureWindowBmp(root.width, root.height) ?: return onCaptureFailed()
+            captureToken = -1
+            captureDeadline?.let { mainHandler.removeCallbacks(it) }
+            android.util.Log.i("FlipBridge", "软件绘制拍照 ${root.width}x${root.height}")
+            root.draw(Canvas(bmp))
+            onCaptureReady(bmp)
+        } catch (e: Exception) {
+            android.util.Log.e("FlipBridge", "softwareCapture", e)
             onCaptureFailed()
         }
     }

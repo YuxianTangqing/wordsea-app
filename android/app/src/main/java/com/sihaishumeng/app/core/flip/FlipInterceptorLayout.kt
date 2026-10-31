@@ -31,6 +31,18 @@ class FlipInterceptorLayout(
     private var gaveUp = false
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        // 批⑩R 手势链总防护：任何 FlipController/拍照异常绝不崩 APP（吞掉+日志——
+        // 拦截层一炸=主线程死；功能面由 web 侧 fail 事件降级兜底）
+        return try {
+            interceptTouch(ev)
+        } catch (e: Exception) {
+            android.util.Log.e("FlipBridge", "onInterceptTouchEvent", e)
+            tracking = false
+            false
+        }
+    }
+
+    private fun interceptTouch(ev: MotionEvent): Boolean {
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 tracking = false
@@ -65,6 +77,17 @@ class FlipInterceptorLayout(
 
     override fun onTouchEvent(ev: MotionEvent): Boolean {
         if (!tracking) return false
+        return try {
+            handleTouch(ev)
+        } catch (e: Exception) {
+            android.util.Log.e("FlipBridge", "onTouchEvent", e)
+            tracking = false
+            parent?.requestDisallowInterceptTouchEvent(false)
+            true
+        }
+    }
+
+    private fun handleTouch(ev: MotionEvent): Boolean {
         when (ev.actionMasked) {
             MotionEvent.ACTION_MOVE -> {
                 val idx = ev.findPointerIndex(activePointerId)

@@ -94,9 +94,13 @@ android {
         //   （flip-dynamics.ts 直译，θ 判据与网页同源）。桥增三法 nativeFlipSupported/
         //   setFlipIntercept/requestPageFlip（24/25 恒 false=面板藏档）；事件回投
         //   __wsPageFlip settle/rollback/done/fail。web 是决策大脑（翻页决策/跨章/进度），
-        //   native 是效果器（批⑨ 听书同构）。批⑧ SDK 顺延 28/2.0.13。
-        versionCode = 27
-        versionName = "2.0.12"
+        //   native 是效果器（批⑨ 听书同构）。批⑧ SDK 顺延 29/2.0.14。
+        // 批⑩R 2.0.13 (28)：真机返修「选仿真翻页弹降级提示」——三管齐下：①桥三法
+        //   全链 runCatching+Log.e（任何未预见异常不回抛 JS/不崩主线程）；②PixelCopy
+        //   失败/超时→软件绘制回退（rootView.draw——站主 ROM PixelCopy 兼容面，慢
+        //   50-150ms 保功能）；③拦截层手势链总防护。
+        versionCode = 28
+        versionName = "2.0.13"
     }
 
     signingConfigs {

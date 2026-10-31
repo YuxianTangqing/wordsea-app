@@ -153,23 +153,51 @@ class ShellBridge(
     }
 
     // ══ 批⑩ 仿真翻页三法（增量不在冻结列；web 特征探测缺失=回落网页翻页=双向部署安全） ══
+    // 批⑩R：三方法全链 runCatching——真机站主实录「选仿真翻页弹降级提示」=桥异常
+    // 以 JS Error 同步抛回网页（45 窗 web 已套防御保命，本侧再加纵深：任何未预见
+    // 异常吞掉+Log.e 定位，绝不回抛 JS/绝不崩主线程）。
 
     /** 能力口：API≥26（PixelCopy window 版可用）才承接原生卷页；24/25 恒 false
      *  →web 面板藏「仿真翻页」档+存量偏好按 slide-h 分派。 */
     @JavascriptInterface
-    fun nativeFlipSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+    fun nativeFlipSupported(): Boolean = try {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+    } catch (e: Exception) {
+        android.util.Log.e("FlipBridge", "nativeFlipSupported", e)
+        false
+    }
 
     /** web 声明翻页接管态（幂等，web 状态变化即重发）：{enabled,ready,edgePrev,
      *  edgeNext,first,last,rect:{x,y,w,h},bg,dark,eink}——binder 线程切主线程。 */
     @JavascriptInterface
     fun setFlipIntercept(stateJson: String) {
-        activity.runOnUiThread { onFlipStateChange(stateJson) }
+        try {
+            activity.runOnUiThread {
+                try {
+                    onFlipStateChange(stateJson)
+                } catch (e: Exception) {
+                    android.util.Log.e("FlipBridge", "setFlipIntercept/ui", e)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FlipBridge", "setFlipIntercept", e)
+        }
     }
 
     /** 程序翻页请求（点区/音量键/空格，web 决策后调用）：{dir,cross,dur,seq}。
      *  cross=true=末/首页向外翻（动画完 hold 至 web 就绪声明，跨章加载间隙用）。 */
     @JavascriptInterface
     fun requestPageFlip(payloadJson: String) {
-        activity.runOnUiThread { onFlipRequest(payloadJson) }
+        try {
+            activity.runOnUiThread {
+                try {
+                    onFlipRequest(payloadJson)
+                } catch (e: Exception) {
+                    android.util.Log.e("FlipBridge", "requestPageFlip/ui", e)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FlipBridge", "requestPageFlip", e)
+        }
     }
 }
