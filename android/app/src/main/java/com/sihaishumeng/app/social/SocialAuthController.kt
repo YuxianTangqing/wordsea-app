@@ -27,10 +27,16 @@ import org.json.JSONObject
  *
  * QQ 裂号防线：服务端按 Account.unionid 反查（一次性迁移脚本+网页登录惰性回填）；
  * 未命中直接开新号（批③ 站主裁定与微信/支付宝同构；批④W 站主复裁取消确认环节）。
+ *
+ * 批⑥ 绑定态（optionsJson.mode='link'，缺省登录）：微信/QQ/支付宝 SDK 流程同款但
+ * 上送 /app-social/link（已登录会话内关联当前用户；cookie 经 WebViewCookieJar 自动
+ * 携带，响应增 already 幂等标记）；B站/GitHub（无 SDK 家族）走 better-auth 既有
+ * /link-social → 通用授权屏（BiliAuthActivity）浮层完成整条回调链——「已绑他人」被
+ * errorCallbackURL 安全拒绝，无会话劫持。github 仅绑定态放行（登录态网页页不放行）。
  */
 class SocialAuthController(private val activity: Activity) {
 
-    enum class Provider { WECHAT, QQ, BILIBILI, ALIPAY }
+    enum class Provider { WECHAT, QQ, BILIBILI, ALIPAY, GITHUB }
 
     private companion object {
         /** 僵尸熔断窗口（与 web 侧 180s 超时同口径） */
@@ -43,6 +49,8 @@ class SocialAuthController(private val activity: Activity) {
      *  断链（如批⑤ 支付宝回跳无 filter 接收）会让 busy 永卡——四家按钮全 BUSY 静默
      *  直到杀 APP。超 180s（与 web 侧超时同口径）视为僵尸，清态放行新请求。 */
     private var busyAt = 0L
+    /** 批⑥ 绑定态标记（startForWeb 解析 optionsJson.mode；绑定态忽略 invite）。 */
+    private var linkMode = false
     private var invite: String? = null
     private var emit: ((JSONObject) -> Unit)? = null
 
@@ -51,21 +59,26 @@ class SocialAuthController(private val activity: Activity) {
         Provider.QQ -> true // open-sdk 内置 WAP 兜底（未装手机QQ也能登）
         Provider.BILIBILI -> true
         Provider.ALIPAY -> true // SDK 第 5 参 true=未装支付宝走内置 H5 中转页
+        Provider.GITHUB -> true // 批⑥ 绑定态浮层网页流（无 SDK）
     }
 
     /** 桥面入口（ShellBridge.socialLogin 切主线程后转发）。provider=wechat/qq/
-     *  alipay/bilibili；optionsJson={invite?}；emit=结果回呼（调用方包成
-     *  window[callbackName](json) 注入网页）。 */
+     *  alipay/bilibili/github（github 仅 link 态）；optionsJson={invite?, mode?}；
+     *  emit=结果回呼（调用方包成 window[callbackName](json) 注入网页）。 */
     fun startForWeb(providerName: String, optionsJson: String, emit: (JSONObject) -> Unit) {
+        val opts = runCatching { JSONObject(optionsJson) }.getOrNull() ?: JSONObject()
+        val link = opts.optString("mode") == "link"
         val provider = when (providerName) {
             "wechat" -> Provider.WECHAT
             "qq" -> Provider.QQ
             "bilibili" -> Provider.BILIBILI
             "alipay" -> Provider.ALIPAY
-            else -> {
-                emit(resultJson(ok = false, code = "AUTH", message = "未知登录方式：$providerName"))
-                return
-            }
+            "github" -> if (link) Provider.GITHUB else null
+            else -> null
+        }
+        if (provider == null) {
+            emit(resultJson(ok = false, code = "AUTH", message = "未知登录方式：$providerName"))
+            return
         }
         if (busy) {
             if (android.os.SystemClock.elapsedRealtime() - busyAt < BUSY_ZOMBIE_MS) {
@@ -83,8 +96,8 @@ class SocialAuthController(private val activity: Activity) {
         }
         busy = true
         busyAt = android.os.SystemClock.elapsedRealtime()
-        this.invite = runCatching { JSONObject(optionsJson).optString("invite") }.getOrNull()
-            ?.trim()?.takeIf { it.isNotEmpty() }
+        this.linkMode = link
+        this.invite = if (link) null else opts.optString("invite").trim().takeIf { it.isNotEmpty() }
         this.emit = emit
         when (provider) {
             Provider.WECHAT -> {
@@ -108,7 +121,7 @@ class SocialAuthController(private val activity: Activity) {
                     }
                 }
             }
-            Provider.BILIBILI -> startBili()
+            Provider.BILIBILI -> if (link) startWebLink("bilibili") else startBili()
             Provider.ALIPAY -> AlipayAuth.signIn(activity) { authCode, message ->
                 // 回调线程无主线程承诺——runOnUiThread 收口（主线程调用=立即执行）
                 activity.runOnUiThread {
@@ -116,6 +129,7 @@ class SocialAuthController(private val activity: Activity) {
                     else finish(resultJson(ok = false, code = "AUTH", message = message))
                 }
             }
+            Provider.GITHUB -> startWebLink("github")
         }
     }
 
@@ -133,21 +147,60 @@ class SocialAuthController(private val activity: Activity) {
             if (message != null) put("message", message)
         }
 
-    /** 上送 /api/auth/app-social/sign-in（provider 单独参数拼入；wechat/qq/alipay 共用）。 */
+    /** 上送端点（provider 单独参数拼入；wechat/qq/alipay 共用）：登录态
+     *  /api/auth/app-social/sign-in（invite 拼入）；批⑥ 绑定态 /api/auth/app-social/link
+     *  （会话 cookie 经 WebViewCookieJar 自动携带；响应无 isRegister/user，增 already）。 */
     private fun signInApp(provider: String, body: JSONObject) {
         body.put("provider", provider)
-        if (invite != null && !body.has("invite")) body.put("invite", invite)
-        ApiClient.postJson("/api/auth/app-social/sign-in", body) { code, json ->
+        if (!linkMode && invite != null && !body.has("invite")) body.put("invite", invite)
+        ApiClient.postJson(
+            if (linkMode) "/api/auth/app-social/link" else "/api/auth/app-social/sign-in",
+            body,
+        ) { code, json ->
             when {
                 code == 200 && json?.optString("status") == "ok" -> finish(
-                    resultJson(ok = true)
-                        .put("isRegister", json.optBoolean("isRegister", false))
-                        .put("user", json.optJSONObject("user") ?: JSONObject.NULL)
+                    if (linkMode) {
+                        resultJson(ok = true).put("already", json.optBoolean("already", false))
+                    } else {
+                        resultJson(ok = true)
+                            .put("isRegister", json.optBoolean("isRegister", false))
+                            .put("user", json.optJSONObject("user") ?: JSONObject.NULL)
+                    }
                 )
                 code == 404 -> finish(resultJson(ok = false, code = "SERVER", message = "该登录方式暂未启用"))
                 code == 429 -> finish(resultJson(ok = false, code = "SERVER", message = "尝试过于频繁，请稍后再试"))
+                // 批⑥：401（会话过期「请先登录后再绑定」）等服务端中文文案由此档直达
                 code in 400..499 -> finish(resultJson(ok = false, code = "SERVER", message = json?.optString("message")?.takeIf { it.isNotEmpty() } ?: "授权失败（$code）"))
                 else -> finish(resultJson(ok = false, code = "SERVER", message = "网络异常（${if (code < 0) "连接失败" else code}）"))
+            }
+        }
+    }
+
+    /** 批⑥ 绑定态浮层流（B站/GitHub）：POST /link-social 拿授权 url → 通用授权屏
+     *  （BiliAuthActivity）承载整条回调链——会话 cookie 经共享 CookieManager 自动带，
+     *  better-auth callback 在会话在场时执行关联；「已绑他人」被 errorCallbackURL 安全
+     *  拒绝（account_already_linked_to_different_user），无会话劫持。finalUrl 含
+     *  bindFailed=绑定失败（冲突/中途出错）；浮层被关闭=CANCEL 静默复位。 */
+    private fun startWebLink(providerId: String) {
+        val body = JSONObject()
+            .put("provider", providerId)
+            .put("callbackURL", "/settings/account-security?bound=1")
+            .put("errorCallbackURL", "/settings/account-security?bindFailed=1")
+        ApiClient.postJson("/api/auth/link-social", body) { code, json ->
+            val url = json?.optString("url")
+            if (code == 200 && !url.isNullOrEmpty()) {
+                BiliAuthActivity.launch(activity, url) { ok, finalUrl ->
+                    finish(
+                        when {
+                            !ok -> resultJson(ok = false, code = "CANCEL")
+                            finalUrl != null && finalUrl.contains("bindFailed") ->
+                                resultJson(ok = false, code = "AUTH", message = "绑定未完成，该账号可能已绑定其他用户")
+                            else -> resultJson(ok = true)
+                        }
+                    )
+                }
+            } else {
+                finish(resultJson(ok = false, code = "SERVER", message = "发起绑定失败（${if (code < 0) "网络异常" else code}）"))
             }
         }
     }

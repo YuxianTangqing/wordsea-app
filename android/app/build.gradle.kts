@@ -30,8 +30,11 @@ android {
         //   scheme filter + 独立 scheme sihaishumengalipay）+ 社交回呼归一 string 契约
         //   （quote 注入；2.0.0 对象直传致 web JSON.parse 必炸=「登录回调异常」）+ busy
         //   僵尸熔断（180s）。
-        versionCode = 16
-        versionName = "2.0.1"
+        // 批⑥ 2.0.2 (17)：APP 内第三方绑定原生化——socialLogin 桥增 mode='link'
+        //   （微信/QQ/支付宝 SDK 上送 /app-social/link 会话内关联；B站/GitHub 走
+        //   /link-social 浮层授权屏）；web 侧绑定按钮 versionName>=2.0.2 门控。
+        versionCode = 17
+        versionName = "2.0.2"
     }
 
     signingConfigs {

@@ -85,9 +85,11 @@ class ShellBridge(
     fun keyboardViewportPx(): Int = keyboard.lastViewPx
 
     /** 批④W 网页登录页四家按钮的 SDK 拉起口（登录页=网页本尊，桥只做能力层）。
-     *  provider=wechat/qq/alipay/bilibili；optionsJson={invite?}；callbackName=网页
-     *  注册的一次性回呼名（结果 JSON 由 SocialAuthController 产出）。跑在 binder
-     *  线程——切主线程再动 SDK/Activity。 */
+     *  provider=wechat/qq/alipay/bilibili/github（批⑥：github 仅绑定态）；optionsJson=
+     *  {invite?, mode?}（批⑥：mode='link'=绑定态上送 /app-social/link 或 /link-social
+     *  浮层，缺省登录；web 侧绑定按钮带 versionName>=2.0.2 门控——老 APK 桥无视
+     *  mode 会照跑登录）；callbackName=网页注册的一次性回呼名（结果 JSON 由
+     *  SocialAuthController 产出）。跑在 binder 线程——切主线程再动 SDK/Activity。 */
     @JavascriptInterface
     fun socialLogin(provider: String, optionsJson: String, callbackName: String) {
         activity.runOnUiThread { onSocialLogin(provider, optionsJson, callbackName) }

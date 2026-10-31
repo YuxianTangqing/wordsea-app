@@ -59,6 +59,11 @@
   tag；苹果 4.2 拒纯壳时的 Plan B）。主线回退 bf954df 后批④W 落地=**APP 零原生 UI**
   （原生只留能力层：四家登录 SDK+自更新+桥四件+Cookie 三通）。
 - 批⑤ v2.0 首发：服务器双名 APK + web 仓 site.ts 版本**与 APK 上传同批**；壳仓归档。
+- 批⑥ 2.0.2 绑定原生化：`socialLogin` optionsJson 增 `mode='link'`（缺省登录）——
+  微信/QQ/支付宝 SDK 流程同款但上送 `/app-social/link`（会话内关联，web 仓批⑥
+  端点四态：401/他人行拒/幂等 already/单槽位换绑拒）；B站/GitHub（仅 link 态放行）
+  走 `/link-social`→BiliAuthActivity 通用授权屏浮层。**web 侧绑定按钮带
+  versionName>=2.0.2 硬门控**——老 APK 桥无视 mode 会照跑登录（切走会话风险）。
 
 ## 铁律
 
