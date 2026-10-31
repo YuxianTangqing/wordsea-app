@@ -32,6 +32,9 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.sihaishumeng.app.core.SiteConfig
 import com.sihaishumeng.app.core.bridge.ShellBridge
 import com.sihaishumeng.app.core.device.KeyboardInsetController
+import com.sihaishumeng.app.core.flip.CurlPageView
+import com.sihaishumeng.app.core.flip.FlipController
+import com.sihaishumeng.app.core.flip.FlipInterceptorLayout
 import com.sihaishumeng.app.core.tts.TtsEngineHolder
 import com.sihaishumeng.app.core.tts.WebChannel
 import com.sihaishumeng.app.core.update.SelfUpdateController
@@ -59,7 +62,10 @@ import kotlin.concurrent.thread
  * 批③ 四家登录 SDK + 批③R /auth/login 接管曾以原生登录屏为主路径；批④W（站主
  * 2026-10-30 裁定「用网页的登录UI」）登录屏与接管全家退役——登录页=网页本尊，
  * 四家按钮经 __wsShell.socialLogin 桥拉 SDK（本 Activity 零原生 UI；SDK 结果经
- * evalJs 回呼网页）。core 层纯 Kotlin 解耦为 iOS/KMP 留门——勿把业务逻辑写进本 Activity。
+ * evalJs 回呼网页）。批⑩ 仿真翻页原生动画层（起点/番茄式整页卷曲）：core/flip/
+ * 四件（手势容器包 WebView+卷页盖层+会话控制器+动力学），排版/长尾仍网页——
+ * web 是决策大脑、native 是效果器（批⑨ 听书同构）。
+ * core 层纯 Kotlin 解耦为 iOS/KMP 留门——勿把业务逻辑写进本 Activity。
  */
 class MainActivity : AppCompatActivity() {
 
@@ -86,6 +92,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var rootLayout: ViewGroup
     private lateinit var swipe: SwipeRefreshLayout
     private lateinit var webView: WebView
+    /** 批⑩ 仿真翻页：手势容器（持久存活，包 WebView 于 swipe 内）+卷页盖层+会话控制器 */
+    private var flipLayout: FlipInterceptorLayout? = null
+    private var curlView: CurlPageView? = null
+    private lateinit var flipController: FlipController
     private lateinit var progressBar: ProgressBar
     private lateinit var loadingOverlay: View
     private lateinit var errorOverlay: View
@@ -155,6 +165,15 @@ class MainActivity : AppCompatActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
         bindViews()
+        // 批⑩ 仿真翻页：会话控制器+卷页盖层（z 序插 progressBar 前=盖 swipe、
+        // 不盖错误页/首载遮罩/横幅；初始 GONE，声明不来零行为）
+        flipController = FlipController(
+            this,
+            viewProvider = { curlView },
+            webViewProvider = { if (this::webView.isInitialized) webView else null },
+        )
+        curlView = CurlPageView(this).apply { visibility = View.GONE }
+        rootLayout.addView(curlView, rootLayout.indexOfChild(progressBar))
         keyboardInset.install(rootLayout)
         setupSwipe()
         attachWebView()
@@ -259,21 +278,33 @@ class MainActivity : AppCompatActivity() {
                 keyboardInset,
                 { enabled -> volumePaging = enabled },
                 ::handleSocialLogin,
+                { json -> flipController.onDeclaration(json) },
+                { json -> flipController.onProgramFlip(json) },
             ),
             "__wsShell",
         )
         // 批⑨ 进程级 WebView 通道换绑（TTS 会话事件/逐块回投的唯一注 JS 出口；
         // render 崩溃重建走同一装配口自动恢复）
         WebChannel.bind(webView)
-        // 精确移除旧实例（onRenderProcessGone 重建路径）——绝不用 removeAllViews：
-        // 那会误删 SwipeRefreshLayout 自管理的 circleView 指示器，且库的 mTarget 是
-        // 「首次发现即冻结」，整批换子后新 WebView 将无人测量（0×0 白屏根因）。
-        if (this::webView.isInitialized && webView.parent === swipe) {
-            swipe.removeView(webView)
+        // 批⑩ 仿真翻页：flipLayout 持久存活（SwipeRefreshLayout mTarget=flipLayout
+        // 单子恒冻结——铁律不破），WebView 建在 flipLayout 内；render 崩溃重建只换
+        // WebView 实例（精确移除旧实例，绝不用 removeAllViews）。
+        if (flipLayout == null) {
+            flipLayout = FlipInterceptorLayout(this, flipController)
+            swipe.addView(flipLayout, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+            ))
         }
-        swipe.addView(webView, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
-        ))
+        flipLayout?.let { lay ->
+            // 移除旧 WebView 实例（onRenderProcessGone 重建路径；flipLayout 自身不动）
+            for (i in (lay.childCount - 1) downTo 0) {
+                val child = lay.getChildAt(i)
+                if (child is WebView) lay.removeView(child)
+            }
+            lay.addView(webView, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+        }
         webView.loadUrl(SiteConfig.SITE_URL)
     }
 
@@ -325,6 +356,8 @@ class MainActivity : AppCompatActivity() {
             // 旧引擎（<Chrome 111）渲染进程崩溃时原生默认只留白屏——移除旧实例、重建、重载
             (view.parent as? ViewGroup)?.removeView(view)
             view.destroy()
+            // 批⑩：render 崩溃=位图/声明全作废（收层+Idle，等新页面重新声明）
+            flipController.onRenderGone()
             errorActive = false; loadedOnce = false; progress = 0
             attachWebView()
             updateUi()
@@ -434,6 +467,7 @@ class MainActivity : AppCompatActivity() {
         fileChooserCallback?.onReceiveValue(null)
         fileChooserCallback = null
         selfUpdate.destroy()
+        flipController.destroy()
         // 批⑨：TTS 引擎不再随 Activity 关停（TtsEngineHolder=进程级）——听书会话在
         // 前台服务里读，用户退出 Activity 进程存活时朗读继续（引擎经 applicationContext
         // 创建本就与 Activity 无绑定）

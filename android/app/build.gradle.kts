@@ -85,8 +85,18 @@ android {
         //   尖细 1.6），单选语义（真音色选中=声线回中性；空串=全重置治 pitch 残留）；
         //   ⭐直达链 ttsOpenVoiceSettings 随站主令退役（站主 ROM 无 TTS 深链+引擎无
         //   launcher=落输入法页无用）。批⑧ SDK 顺延 27/2.0.12。
-        versionCode = 26
-        versionName = "2.0.11"
+        // 批⑩ 2.0.12 (27)：仿真翻页原生动画层（M355，起点/番茄式整页圆柱卷曲）——
+        //   core/flip/ 四件：FlipInterceptorLayout 手势容器（横拖超 slop 接管，
+        //   ViewPager 经典模式+requestDisallowInterceptTouchEvent 防 SwipeRefreshLayout
+        //   抢）+CurlPageView 卷页盖层（条带绘制，透明洞模型=卷曲露 WebView 实时新页，
+        //   终态全透明撤层零跳变；跨章 hold 画 bg 遮加载间隙）+FlipController 会话状态
+        //   机（PixelCopy 拍起手帧一张/双张复用位图/fastForward 会话串行）+FlipDynamics
+        //   （flip-dynamics.ts 直译，θ 判据与网页同源）。桥增三法 nativeFlipSupported/
+        //   setFlipIntercept/requestPageFlip（24/25 恒 false=面板藏档）；事件回投
+        //   __wsPageFlip settle/rollback/done/fail。web 是决策大脑（翻页决策/跨章/进度），
+        //   native 是效果器（批⑨ 听书同构）。批⑧ SDK 顺延 28/2.0.13。
+        versionCode = 27
+        versionName = "2.0.12"
     }
 
     signingConfigs {

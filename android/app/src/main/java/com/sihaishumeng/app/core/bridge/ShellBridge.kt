@@ -15,10 +15,11 @@ import com.sihaishumeng.app.core.tts.TtsSessionManager
  * 转打进程级 TtsEngineHolder，签名/返回语义不变），web 层零改动同时适配轻壳与
  * 本原生工程。批④W 第 9 方法 socialLogin（登录页网页化）；批⑨ 新增会话五法
  * （ttsStartSession/ttsControl/ttsSessionState/ttsVoices/ttsSetVoice——听书会话
- * 下沉原生前台服务+音色选择）——增量不在冻结列，web 特征探测（typeof）回落旧
- * 逐块模式=双向部署安全。批⑨R5~R7 的 ttsOpenVoiceSettings（系统语音设置直达）
- * R8 随站主令退役（站主 ROM 无 TTS 深链+引擎无 launcher=落输入法页无用；发音人
- * 诉求改由 ttsVoices 的 pitch 音调档承接——全引擎通用）。
+ * 下沉原生前台服务+音色选择）；批⑩ 新增仿真翻页三法（nativeFlipSupported/
+ * setFlipIntercept/requestPageFlip——翻页动画下沉原生）——增量不在冻结列，web
+ * 特征探测（typeof）回落旧逐块模式=双向部署安全。批⑨R5~R7 的 ttsOpenVoiceSettings
+ * （系统语音设置直达）R8 随站主令退役（站主 ROM 无 TTS 深链+引擎无 launcher=落
+ * 输入法页无用；发音人诉求改由 ttsVoices 的 pitch 音调档承接——全引擎通用）。
  *
  * 只暴露只读版本号+声明性动作——授权大域页面（qq/alipay/bilibili/github）拿到的
  * 也只是数字与无副作用的开关。@JavascriptInterface 方法跑在 binder 线程。
@@ -36,6 +37,12 @@ class ShellBridge(
     /** 批④W 桥面社交登录（切主线程后转发宿主 handleSocialLogin）。
      *  ⚠️ 同上命名铁律：参数名与方法 fun socialLogin 严禁同名（递归坑同源）。 */
     private val onSocialLogin: (String, String, String) -> Unit,
+    /** 批⑩ 仿真翻页声明（web setFlipIntercept 转发 FlipController；切主线程）。
+     *  ⚠️ 同上命名铁律：参数名与方法 fun setFlipIntercept 严禁同名。 */
+    private val onFlipStateChange: (String) -> Unit,
+    /** 批⑩ 程序翻页请求（web requestPageFlip 转发 FlipController；切主线程）。
+     *  ⚠️ 同上命名铁律：参数名与方法 fun requestPageFlip 严禁同名。 */
+    private val onFlipRequest: (String) -> Unit,
 ) {
     @JavascriptInterface
     fun versionName(): String = try {
@@ -143,5 +150,26 @@ class ShellBridge(
     @JavascriptInterface
     fun socialLogin(provider: String, optionsJson: String, callbackName: String) {
         activity.runOnUiThread { onSocialLogin(provider, optionsJson, callbackName) }
+    }
+
+    // ══ 批⑩ 仿真翻页三法（增量不在冻结列；web 特征探测缺失=回落网页翻页=双向部署安全） ══
+
+    /** 能力口：API≥26（PixelCopy window 版可用）才承接原生卷页；24/25 恒 false
+     *  →web 面板藏「仿真翻页」档+存量偏好按 slide-h 分派。 */
+    @JavascriptInterface
+    fun nativeFlipSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+
+    /** web 声明翻页接管态（幂等，web 状态变化即重发）：{enabled,ready,edgePrev,
+     *  edgeNext,first,last,rect:{x,y,w,h},bg,dark,eink}——binder 线程切主线程。 */
+    @JavascriptInterface
+    fun setFlipIntercept(stateJson: String) {
+        activity.runOnUiThread { onFlipStateChange(stateJson) }
+    }
+
+    /** 程序翻页请求（点区/音量键/空格，web 决策后调用）：{dir,cross,dur,seq}。
+     *  cross=true=末/首页向外翻（动画完 hold 至 web 就绪声明，跨章加载间隙用）。 */
+    @JavascriptInterface
+    fun requestPageFlip(payloadJson: String) {
+        activity.runOnUiThread { onFlipRequest(payloadJson) }
     }
 }
