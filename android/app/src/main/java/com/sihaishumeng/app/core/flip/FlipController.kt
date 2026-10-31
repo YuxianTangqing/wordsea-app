@@ -88,11 +88,17 @@ class FlipController(
         val dir: Int,
         val seq: Int,
         var cross: Boolean,
-        /** 批⑩R5：角捏起手（θ 用综合行程 hypot(dx,dy)——竖向拖也有进度感） */
+        /** 批⑩R5：角捏起手（A=所按角） */
         val corner: Boolean = false,
     ) {
         var phase = Phase.DRAG
         var theta = 0f
+        // ⭐批⑩R6：贝塞尔 F 驱动（page 模式 θ 退役）：A=起翻角/F=手指（页内局部
+        // 坐标）；动画对「行程比例 t」插值（0=贴角 1=对角 1.45=出页）
+        var ax = 0f; var ay = 0f
+        var fx = 0f; var fy = 0f
+        var animTFrom = 1f
+        var animTTarget = 1f
         var settled = false
         var downX = 0f
         var downY = 0f
@@ -219,6 +225,21 @@ class FlipController(
         s.downX = x
         s.downY = downYLast
         session = s
+        // 批⑩R6：A=起翻角（页内局部坐标）。角捏=DOWN 落点所在角；横拖=起手侧
+        // 下角（dir=1 右下/dir=-1 左下——经典 PageWidget 语义）；F 初值=A
+        if (mode == GMode.PAGE) {
+            val r = physRect(d)
+            s.ax = when {
+                s.corner -> if (x - r.left < r.width() / 2f) 0f else r.width()
+                dir == 1 -> r.width()
+                else -> 0f
+            }
+            s.ay = if (s.corner) {
+                if (downYLast - r.top < r.height() / 2f) 0f else r.height()
+            } else r.height()
+            s.fx = (x - r.left).coerceIn(0f, r.width())
+            s.fy = (downYLast - r.top).coerceIn(0f, r.height())
+        }
         // 批⑩R4：预拍代际命中=零延迟直起（起手即跟手）；miss=即时亮相（纸底色）
         // +后台拍（到位换真图，绝不显示过期页帧）
         val fresh = pageBmp != null && preheatGen == pageGen
@@ -237,24 +258,16 @@ class FlipController(
         val w = physRect(d).width().coerceAtLeast(1f)
         s.samples.add(FlipDynamics.Sample(now(), x))
         if (s.samples.size > 16) s.samples.removeAt(0)
-        s.theta = if (s.mode == GMode.PAGE) {
-            // 批⑩R4：满值拖距收窄 0.62W；⭐批⑩R5：拖动态封顶 150°（离屏段只留
-            // 松手动画——快滑 θ 冲 165+ 时盖层几乎全程透明=底下新页裸露=「按住没
-            // 松就是下一页/动画看不到」真凶：R4 的 0.62W+离屏过渡叠加的过度修正）；
-            // 角捏起手=综合行程 hypot(dx,dy)（竖向拖也有进度感）
-            val travel = if (s.corner) {
-                hypot((x - s.downX).toDouble(), (lastMoveY - s.downY).toDouble()).toFloat()
-            } else {
-                abs(x - s.downX)
-            }
-            (travel / (w * 0.62f) * FlipDynamics.THETA_CEIL).coerceIn(0f, 150f)
+        if (s.mode == GMode.PAGE) {
+            // 批⑩R6：F 驱动——手指即 F（页内局部坐标），贝塞尔几何逐帧重算
+            val r = physRect(d)
+            s.fx = (x - r.left).coerceIn(0f, r.width())
+            s.fy = (y - r.top).coerceIn(0f, r.height())
+            viewProvider()?.updateF(CurlPageView.Mode.DRAG_PAGE, s.dir, s.ax, s.ay, s.fx, s.fy)
         } else {
-            FlipDynamics.softEdgeTheta(abs(x - s.downX) / (w * FlipDynamics.SOFT_EDGE_FULL_W))
+            s.theta = FlipDynamics.softEdgeTheta(abs(x - s.downX) / (w * FlipDynamics.SOFT_EDGE_FULL_W))
+            viewProvider()?.updateEdge(CurlPageView.Mode.DRAG_EDGE, s.dir, s.theta)
         }
-        viewProvider()?.update(
-            if (s.mode == GMode.PAGE) CurlPageView.Mode.DRAG_PAGE else CurlPageView.Mode.DRAG_EDGE,
-            s.dir, s.theta,
-        )
     }
 
     fun onGestureRelease(x: Float) {
@@ -262,20 +275,88 @@ class FlipController(
         if (s.phase != Phase.DRAG) return
         val w = physRect(decl ?: return).width().coerceAtLeast(1f)
         val vx = FlipDynamics.releaseFlingVelocity(s.samples, 100f)
-        val shouldFlip = if (s.mode == GMode.PAGE) {
-            s.theta > FlipDynamics.RELEASE_THETA_DEG || vx > FlipDynamics.RELEASE_VX
-        } else {
-            s.theta >= FlipDynamics.SOFT_EDGE_TRIGGER_DEG || vx >= FlipDynamics.SOFT_EDGE_FLING_VX
-        }
-        if (shouldFlip) {
-            if (!s.settled) {
-                s.settled = true
-                emit("settle", s.dir, s.seq)
+        if (s.mode == GMode.PAGE) {
+            // 批⑩R6：F 判阈=行程比例（|AF|/对角线>0.18 或快甩）
+            val travel = currentTravel(s)
+            if (travel > 0.18f || vx > FlipDynamics.RELEASE_VX) {
+                if (!s.settled) { s.settled = true; emit("settle", s.dir, s.seq) }
+                s.cross = false
+                animateF(s, 1.45f, vx) // 出页
+            } else {
+                reboundF(s)
             }
-            s.cross = s.mode == GMode.EDGE
+            return
+        }
+        if (s.theta >= FlipDynamics.SOFT_EDGE_TRIGGER_DEG || vx >= FlipDynamics.SOFT_EDGE_FLING_VX) {
+            if (!s.settled) { s.settled = true; emit("settle", s.dir, s.seq) }
+            s.cross = true
             animateTo(s, FlipDynamics.THETA_CEIL, vx)
         } else {
             rebound(s)
+        }
+    }
+
+    /** 批⑩R6：F 动画（t=行程比例；hermite 对 t 插值；t>1.0 后 fade 渐出=撤层零跳变） */
+    private fun animateF(s: Session, target: Float, vx: Float) {
+        s.phase = Phase.ANIM
+        s.animTFrom = currentTravel(s)
+        s.animTTarget = target
+        s.animV0 = vx
+        s.animDur = FlipDynamics.flipDuration(vx, s.animTFrom * FlipDynamics.THETA_CEIL)
+            .coerceIn(200f, 650f)
+        s.animStart = android.os.SystemClock.uptimeMillis()
+        viewProvider()?.show(CurlPageView.Mode.ANIM_PAGE, s.dir)
+        choreographer.postFrameCallback(animFrameF)
+    }
+
+    private fun reboundF(s: Session) {
+        s.phase = Phase.REBOUND
+        s.animTFrom = currentTravel(s)
+        s.animTTarget = 0f
+        s.animDur = FlipDynamics.reboundDuration(s.animTFrom * FlipDynamics.THETA_CEIL)
+        s.animStart = android.os.SystemClock.uptimeMillis()
+        choreographer.postFrameCallback(animFrameF)
+    }
+
+    private fun currentTravel(s: Session): Float {
+        val d = decl ?: return 0f
+        val r = physRect(d)
+        val diag = hypot(r.width().toDouble(), r.height().toDouble()).toFloat().coerceAtLeast(1f)
+        return hypot((s.fx - s.ax).toDouble(), (s.fy - s.ay).toDouble()).toFloat() / diag
+    }
+
+    /** F 动画帧：t 插值 → F 沿 A→对角方向推进 */
+    private val animFrameF: Choreographer.FrameCallback = Choreographer.FrameCallback { frameTimeNanos ->
+        val s = session ?: return@FrameCallback
+        if (s.phase != Phase.ANIM && s.phase != Phase.REBOUND) return@FrameCallback
+        val elapsed = (frameTimeNanos / 1_000_000f - s.animStart).coerceIn(0f, s.animDur)
+        val t = FlipDynamics.hermiteTheta(s.animTFrom, 0f, s.animTTarget, s.animDur, elapsed)
+        val d = decl ?: return@FrameCallback
+        val r = physRect(d)
+        val w = r.width(); val h = r.height()
+        val diag = hypot(w.toDouble(), h.toDouble()).toFloat().coerceAtLeast(1f)
+        val cx = if (s.ax > w / 2f) 0f else w // A 的对角
+        val cy = if (s.ay > h / 2f) 0f else h
+        val ux = (cx - s.ax) / diag; val uy = (cy - s.ay) / diag
+        s.fx = s.ax + ux * t * diag
+        s.fy = s.ay + uy * t * diag
+        val fade = if (t > 1.0f) (1f - (t - 1.0f) / 0.45f).coerceIn(0f, 1f) else 1f
+        viewProvider()?.updateF(CurlPageView.Mode.ANIM_PAGE, s.dir, s.ax, s.ay, s.fx, s.fy, fade)
+        if (elapsed >= s.animDur) {
+            if (s.phase == Phase.ANIM) {
+                if (s.cross) {
+                    s.phase = Phase.HOLD
+                    viewProvider()?.show(CurlPageView.Mode.HOLD, s.dir)
+                    mainHandler.postDelayed({
+                        if (session === s && s.phase == Phase.HOLD) finishSession(s, notifyDone = true)
+                    }, 4_000L)
+                } else finishSession(s, notifyDone = true)
+            } else {
+                if (s.settled) emit("rollback", s.dir, s.seq)
+                finishSession(s, notifyDone = true)
+            }
+        } else {
+            choreographer.postFrameCallback(this.animFrameF)
         }
     }
 
@@ -299,11 +380,15 @@ class FlipController(
             session?.let { if (it.phase != Phase.HOLD) fastForward(it) else finishSession(it, notifyDone = true) }
             val s = Session(GMode.PAGE, dir, if (webSeq != 0) webSeq else ++sessionSeq, cross)
             s.settled = true // settle 在 startVisual 发
-            s.theta = 0f
             s.phase = Phase.ANIM
-            s.animFrom = 0f; s.animV0 = 0f; s.animTarget = FlipDynamics.THETA_CEIL
-            s.animDur = dur
-            s.animStart = 0L // 哨兵：startVisual 起表（等位图就绪才算动画第 0 帧）
+            // 批⑩R6：程序翻页=F 动画 0→1.45（A=起手侧下角）
+            val r = physRect(d)
+            s.ax = if (dir == 1) r.width() else 0f
+            s.ay = r.height()
+            s.fx = s.ax; s.fy = s.ay
+            s.animTFrom = 0f; s.animTTarget = 1.45f
+            s.animDur = dur.coerceIn(200f, 650f)
+            s.animStart = 0L // 哨兵：startVisual 起表
             session = s
             // 必须重拍（快进收束撤层的下一帧才是干净页面）——延一帧再拍
             s.pendingBitmap = true
@@ -384,12 +469,14 @@ class FlipController(
                 s.dir,
             )
             Phase.ANIM -> {
-                // program 会话（animStart 哨兵 0）：起表+入场帧
+                // program 会话（animStart 哨兵 0）：起表+入场帧（page=贝塞尔 F 帧；edge=θ 帧）
                 if (s.animStart == 0L) {
                     s.animStart = android.os.SystemClock.uptimeMillis()
-                    choreographer.postFrameCallback(animFrame)
+                    if (s.mode == GMode.PAGE) choreographer.postFrameCallback(animFrameF)
+                    else choreographer.postFrameCallback(animFrame)
                 }
-                view.show(animMode(s), s.dir)
+                if (s.mode == GMode.PAGE) view.show(CurlPageView.Mode.ANIM_PAGE, s.dir)
+                else view.show(animMode(s), s.dir)
             }
             else -> view.show(animMode(s), s.dir)
         }
@@ -417,7 +504,7 @@ class FlipController(
         if (s.phase == Phase.ANIM) {
             val t = (frameTimeNanos / 1_000_000f) - s.animStart
             s.theta = FlipDynamics.hermiteTheta(s.animFrom, s.animV0, s.animTarget, s.animDur, t)
-            viewProvider()?.update(animMode(s), s.dir, s.theta)
+            viewProvider()?.updateEdge(animMode(s), s.dir, s.theta)
             if (t >= s.animDur) {
                 s.theta = s.animTarget
                 onAnimComplete(s)
@@ -428,7 +515,7 @@ class FlipController(
             val t = (frameTimeNanos / 1_000_000f) - s.reboundStart
             val th = FlipDynamics.reboundTheta(s.reboundFrom, t)
             s.theta = th
-            viewProvider()?.update(animMode(s), s.dir, max(0f, th))
+            viewProvider()?.updateEdge(animMode(s), s.dir, max(0f, th))
             val total = FlipDynamics.reboundDuration(s.reboundFrom)
             if (t >= total) {
                 if (s.settled) emit("rollback", s.dir, s.seq) // page 模式回卷归零：web 复原
@@ -470,8 +557,8 @@ class FlipController(
                 finishSession(s, notifyDone = true)
             }
             Phase.ANIM -> {
-                s.theta = s.animTarget
-                onAnimComplete(s)
+                if (s.mode == GMode.PAGE) finishSession(s, notifyDone = true) // F 动画直跳出页
+                else { s.theta = s.animTarget; onAnimComplete(s) }
             }
             Phase.REBOUND -> finishSession(s, notifyDone = true)
             Phase.HOLD -> { /* 不快进 hold */ }

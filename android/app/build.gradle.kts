@@ -111,8 +111,14 @@ android {
         //   过渡叠加过度修正：快滑 θ 冲 165+ 盖层几乎全程透明=底下新页裸露=「一闪
         //   即逝」真凶）；②角部捏起热区（页角 22% 区轻拖 6px 任意方向即锁，角位定
         //   方向右角=下一页/左角=上一页，θ 用综合行程 hypot(dx,dy)）。
-        versionCode = 30
-        versionName = "2.0.15"
+        // 批⑩R6 2.0.16 (31)：⭐几何范式重做——经典 PageWidget 贝塞尔（站主携技术材料
+        //   探讨定稿）：折痕=AF 中垂线弧化（两段 quad，弧顶随行程内凹）；背面=位图
+        //   沿折线反射镜像+暗化（素色纸背退役）；双投影（折痕弧 stroke 渐变+背面
+        //   暗化）；F 点驱动替代 θ（行程比例判阈+hermite 对 t 插值+尾段 fade 渐出）。
+        //   绘制序天然分界（整页位图+镜像盖翻起区）——全程 INTERSECTION 裁剪
+        //   （硬件加速 Canvas 不支持 Region.Op.DIFFERENCE）。
+        versionCode = 31
+        versionName = "2.0.16"
     }
 
     signingConfigs {
