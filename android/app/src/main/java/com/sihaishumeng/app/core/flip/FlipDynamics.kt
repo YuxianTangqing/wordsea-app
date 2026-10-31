@@ -1,4 +1,9 @@
 package com.sihaishumeng.app.core.flip
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.round
+import kotlin.math.sin
 
 /**
  * 批⑩ 仿真翻页动力学（web 仓 src/lib/flip-dynamics.ts 直译——θ 判据/手感与网页端
@@ -8,6 +13,9 @@ package com.sihaishumeng.app.core.flip
  * （起点/番茄式整页卷曲），FLIP_DYN 参数取 soft-curl 档值内置为常量。
  */
 object FlipDynamics {
+    /** Float 版 π（kotlin.math.PI 是 Double——全文 Float 语境单源） */
+    private val PI_F = Math.PI.toFloat()
+
 
     /** θ 下限（回弹过冲安全垫，与 web THETA_FLOOR 同源） */
     const val THETA_FLOOR = -8f
@@ -44,15 +52,15 @@ object FlipDynamics {
     private fun clamp01(v: Float): Float = if (v < 0f) 0f else if (v > 1f) 1f else v
 
     /** θ 安全夹取（[THETA_FLOOR, THETA_CEIL]） */
-    fun clampTheta(th: Float): Float = Math.max(THETA_FLOOR, Math.min(THETA_CEIL, th))
+    fun clampTheta(th: Float): Float = max(THETA_FLOOR, min(THETA_CEIL, th))
 
     /**
      * 「翻过去」三次 Hermite：θ(0)=from、θ'(0)=v0(deg/ms)、θ(dur)=target、θ'(dur)=0。
      * 位置与初速双连续（松手瞬间不跳变）；v0=0 精确退化 smoothstep。
      */
     fun hermiteTheta(from: Float, v0: Float, target: Float, dur: Float, t: Float): Float {
-        val d = Math.max(1f, dur)
-        val x = Math.min(Math.max(t, 0f), d)
+        val d = max(1f, dur)
+        val x = min(max(t, 0f), d)
         val delta = target - from
         val a = (v0 * d - 2f * delta) / (d * d * d)
         val b = (3f * delta - 2f * v0 * d) / (d * d)
@@ -69,15 +77,15 @@ object FlipDynamics {
      * OV = min(过冲上限, 0.16×θ0)；soft-curl 档 6° 封顶。
      */
     fun reboundTheta(theta0: Float, t: Float): Float {
-        val ov = Math.min(OVERSHOOT_MAX_DEG, 0.16f * theta0)
+        val ov = min(OVERSHOOT_MAX_DEG, 0.16f * theta0)
         val dA = 110f + 0.95f * theta0
         if (t <= 0f) return theta0
         if (t < dA) {
             val p = t / dA
-            val e = 1f - Math.pow(1f - p, 4f).toFloat()
+            val e = 1f - Math.pow((1f - p).toDouble(), 4.0).toFloat()
             return theta0 + (-ov - theta0) * e
         }
-        val p = Math.min(1f, (t - dA) / REBOUND_SETTLE_MS)
+        val p = min(1f, (t - dA) / REBOUND_SETTLE_MS)
         val e = p * p * (3f - 2f * p)
         return -ov * (1f - e)
     }
@@ -87,13 +95,13 @@ object FlipDynamics {
         val speed = clamp01(vx / 1.2f)
         val dist = clamp01(theta / THETA_CEIL)
         val dur = (FLIP_MIN_MS + (1f - speed) * (1f - 0.35f * dist) * (FLIP_MAX_MS - FLIP_MIN_MS)) * 1.05f
-        return Math.max(60f, Math.round(dur).toFloat())
+        return max(60f, round(dur).toFloat())
     }
 
     /** 光影安全值：sin(θπ/180)，负角恒 0（opacity 永不为负） */
     fun glowOf(theta: Float): Float {
         if (theta <= 0f) return 0f
-        return Math.sin((Math.min(theta, THETA_CEIL) / 180f) * Math.PI).toFloat()
+        return sin((min(theta, THETA_CEIL) / 180f) * PI_F).toFloat()
     }
 
     /** 底层纸页投影参数（θ → scaleX + opacity；soft-curl 档） */
@@ -103,12 +111,12 @@ object FlipDynamics {
     }
 
     /** 松手初速（deg/ms）：vx(px/ms) × 180/W */
-    fun releaseV0(vx: Float, pageWidth: Float): Float = (vx * 180f) / Math.max(1f, pageWidth)
+    fun releaseV0(vx: Float, pageWidth: Float): Float = (vx * 180f) / max(1f, pageWidth)
 
     /** 章缘阻尼曲线：p（拖距/满抬拖距 0..1）→ 抬起角（0..22°，2.4 次缓出） */
     fun softEdgeTheta(p: Float): Float {
-        val c = Math.min(1f, Math.max(0f, p))
-        return SOFT_EDGE_MAX_DEG * (1f - Math.pow(1f - c, 2.4f).toFloat())
+        val c = min(1f, max(0f, p))
+        return SOFT_EDGE_MAX_DEG * (1f - Math.pow((1f - c).toDouble(), 2.4).toFloat())
     }
 
     /**

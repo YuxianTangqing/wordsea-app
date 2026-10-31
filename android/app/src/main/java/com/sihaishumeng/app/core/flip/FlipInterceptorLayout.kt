@@ -27,7 +27,7 @@ class FlipInterceptorLayout(
     private var tracking = false
     private var activePointerId = -1
     private var downX = 0f
-    private downY = 0f
+    private var downY = 0f
     private var gaveUp = false
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {

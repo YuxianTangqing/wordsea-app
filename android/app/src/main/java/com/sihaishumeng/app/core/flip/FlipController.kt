@@ -1,4 +1,7 @@
 package com.sihaishumeng.app.core.flip
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 import android.app.Activity
 import android.graphics.Bitmap
@@ -78,7 +81,7 @@ class FlipController(
         val mode: GMode,
         val dir: Int,
         val seq: Int,
-        val cross: Boolean,
+        var cross: Boolean,
     ) {
         var phase = Phase.DRAG
         var theta = 0f
@@ -185,9 +188,9 @@ class FlipController(
         s.samples.add(FlipDynamics.Sample(now(), x))
         if (s.samples.size > 16) s.samples.removeAt(0)
         s.theta = if (s.mode == GMode.PAGE) {
-            FlipDynamics.clampTheta(Math.abs(x - s.downX) / w * FlipDynamics.THETA_CEIL)
+            FlipDynamics.clampTheta(abs(x - s.downX) / w * FlipDynamics.THETA_CEIL)
         } else {
-            FlipDynamics.softEdgeTheta(Math.abs(x - s.downX) / (w * FlipDynamics.SOFT_EDGE_FULL_W))
+            FlipDynamics.softEdgeTheta(abs(x - s.downX) / (w * FlipDynamics.SOFT_EDGE_FULL_W))
         }
         viewProvider()?.update(
             if (s.mode == GMode.PAGE) CurlPageView.Mode.DRAG_PAGE else CurlPageView.Mode.DRAG_EDGE,
@@ -318,9 +321,9 @@ class FlipController(
     private fun animateTo(s: Session, target: Float, vx: Float) {
         s.phase = Phase.ANIM
         s.animFrom = s.theta
-        s.animV0 = Math.min(
+        s.animV0 = min(
             FlipDynamics.releaseV0(vx, physRect(decl ?: return).width().coerceAtLeast(1f)),
-            2.2f * Math.abs(target - s.theta) / 300f,
+            2.2f * abs(target - s.theta) / 300f,
         )
         s.animTarget = target
         s.animDur = FlipDynamics.flipDuration(vx, s.theta).coerceAtLeast(160f)
@@ -332,7 +335,7 @@ class FlipController(
     private fun animMode(s: Session): CurlPageView.Mode =
         if (s.mode == GMode.PAGE) CurlPageView.Mode.ANIM_PAGE else CurlPageView.Mode.ANIM_EDGE
 
-    private val animFrame = Choreographer.FrameCallback { frameTimeNanos ->
+    private val animFrame: Choreographer.FrameCallback = Choreographer.FrameCallback { frameTimeNanos ->
         val s = session ?: return@FrameCallback
         if (s.phase == Phase.ANIM) {
             val t = (frameTimeNanos / 1_000_000f) - s.animStart
@@ -348,7 +351,7 @@ class FlipController(
             val t = (frameTimeNanos / 1_000_000f) - s.reboundStart
             val th = FlipDynamics.reboundTheta(s.reboundFrom, t)
             s.theta = th
-            viewProvider()?.update(animMode(s), s.dir, Math.max(0f, th))
+            viewProvider()?.update(animMode(s), s.dir, max(0f, th))
             val total = FlipDynamics.reboundDuration(s.reboundFrom)
             if (t >= total) {
                 if (s.settled) emit("rollback", s.dir, s.seq) // page 模式回卷归零：web 复原
@@ -376,7 +379,7 @@ class FlipController(
 
     private fun rebound(s: Session) {
         s.phase = Phase.REBOUND
-        s.reboundFrom = Math.max(0f, s.theta)
+        s.reboundFrom = max(0f, s.theta)
         s.reboundStart = android.os.SystemClock.uptimeMillis()
         choreographer.postFrameCallback(animFrame)
     }
@@ -454,10 +457,10 @@ class FlipController(
     private fun onCaptureReady(window: Bitmap) {
         val d = decl ?: return
         val rect = physRect(d)
-        val left = Math.max(0, rect.left.toInt())
-        val top = Math.max(0, rect.top.toInt())
-        val w = Math.min(window.width - left, rect.width().toInt()).coerceAtLeast(1)
-        val h = Math.min(window.height - top, rect.height().toInt()).coerceAtLeast(1)
+        val left = max(0, rect.left.toInt())
+        val top = max(0, rect.top.toInt())
+        val w = min(window.width - left, rect.width().toInt()).coerceAtLeast(1)
+        val h = min(window.height - top, rect.height().toInt()).coerceAtLeast(1)
         if (left + w > window.width || top + h > window.height) return onCaptureFailed()
         var pb = pageBmp
         if (pb == null || pb.width != w || pb.height != h) {

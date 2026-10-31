@@ -1,4 +1,6 @@
 package com.sihaishumeng.app.core.flip
+import kotlin.math.cos
+import kotlin.math.sin
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -32,6 +34,9 @@ import android.view.View
  * onTouchEvent 恒 false：点击穿透到 WebView（M214 动画期快进链依赖此）。
  */
 class CurlPageView(context: Context) : View(context) {
+    /** Float 版 π/2（条带正/背面分界） */
+    private val HALF_PI = Math.PI.toFloat() / 2f
+
 
     /** 卷筒半径占页宽比（起点式中等卷筒） */
     private val curlRadiusRatio = 0.18f
@@ -178,8 +183,8 @@ class CurlPageView(context: Context) : View(context) {
         val p = (theta / FlipDynamics.THETA_CEIL).coerceIn(0f, 1f)
         val phi = p * Math.PI.toFloat() * 0.999f
         val fingerX = w * (1f - p)
-        val cosPhi = Math.cos(phi).toFloat()
-        val sinPhi = Math.sin(phi).toFloat()
+        val cosPhi = cos(phi)
+        val sinPhi = sin(phi)
         val denom = 1f - cosPhi
         var ell = if (denom < 0.01f) 0f else
             (fingerX - w * cosPhi - r * sinPhi + r * phi * cosPhi) / denom
@@ -199,9 +204,9 @@ class CurlPageView(context: Context) : View(context) {
             val aMid = phi * (k - 0.5f) / stripCount
             val s1 = ell + r * a1
             if (s1 - sAt < 0.5f && k < stripCount) continue
-            val xk = xC + r * Math.sin(a1).toFloat()
+            val xk = xC + r * sin(a1)
             val shade = shadeOf(aMid)
-            if (aMid < Math.PI / 2f && s1 <= w + 0.5f) {
+            if (aMid < HALF_PI && s1 <= w + 0.5f) {
                 // 正面条带：位图对应段（纸长坐标 s）
                 drawSeg(canvas, bmp, minOf(prevX, xk), maxOf(prevX, xk), sAt, minOf(s1, w), shade, true)
             } else {
@@ -218,7 +223,7 @@ class CurlPageView(context: Context) : View(context) {
             val free = w - sAt
             val xEnd = prevX + free * cosPhi
             val shade = shadeOf(phi)
-            if (phi < Math.PI / 2f) {
+            if (phi < HALF_PI) {
                 drawSeg(canvas, bmp, minOf(prevX, xEnd), maxOf(prevX, xEnd), sAt, w, shade, true)
             } else {
                 drawBack(canvas, minOf(prevX, xEnd), maxOf(prevX, xEnd), shade)
@@ -243,10 +248,10 @@ class CurlPageView(context: Context) : View(context) {
 
     /** 条带明暗（卷筒暗带在 α≈π/2；背面微亮） */
     private fun shadeOf(alpha: Float): Float {
-        if (alpha < Math.PI / 2f) {
-            return 1f - FlipDynamics.SHADE_PEAK * Math.sin(alpha)
+        if (alpha < HALF_PI) {
+            return 1f - FlipDynamics.SHADE_PEAK * sin(alpha)
         }
-        return 1f - FlipDynamics.SHADE_PEAK * (1f - (alpha - Math.PI.toFloat() / 2f) / (Math.PI.toFloat() / 2f)) * 0.6f
+        return 1f - FlipDynamics.SHADE_PEAK * (1f - (alpha - HALF_PI) / HALF_PI) * 0.6f
     }
 
     /**
