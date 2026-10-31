@@ -77,6 +77,13 @@ object TtsEngineHolder {
         createEngine(context.applicationContext, null)
     }
 
+    /** 批⑨R4 预热（桥 ttsVoices 首调）：只存 appCtx+触发懒 init——引擎条目段
+     *  （voices() 的 queryIntentServices）依赖 appCtx，同步立即可用 */
+    fun warm(appContext: Context) {
+        if (appCtx == null) appCtx = appContext.applicationContext
+        if (engine == null) createEngine(appCtx!!, null)
+    }
+
     /** 看门狗/会话起点热重建：同引擎包重建（语音数据/引擎进程偶死自愈），音色重放 */
     fun reinit(context: Context) {
         val pkg = enginePkg

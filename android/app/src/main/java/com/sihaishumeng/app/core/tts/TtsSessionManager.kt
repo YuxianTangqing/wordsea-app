@@ -383,14 +383,20 @@ object TtsSessionManager {
 
     // ══════════ 朗读推进（块状态机） ══════════
 
-    /** 当前段推进口：块未尽读下一块；段尽下一段；章尽按 toc 连读 */
+    /** 当前段推进口：块未尽读下一块；段尽下一段；章尽按 toc 连读。
+     *  ⭐批⑨R4 结构修：原版恒「重切当前段+chunkPos=0 重读」=站主真机「不断重复一段」
+     *  真根因——chunkPos 在推进路径上从不自增、paraPos 只在 skip/空段才走，正常段
+     *  永远停在同段第一块循环（与引擎无关，所有设备皆然；站主三轮引擎侧排查
+     *  〔queries/轮询补发/估算补发〕全打在错误的靶层——补发越勤循环越欢）。 */
     private fun advance() {
-        while (paraPos < paras.size) {
+        chunkPos++
+        if (chunkPos < chunks.size) {
+            speakCurrentChunk()
+            return
+        }
+        while (++paraPos < paras.size) {
             val p = paras[paraPos]
-            if (p.skip) {
-                paraPos++
-                continue
-            }
+            if (p.skip) continue
             chunks = splitChunks(p.text, 300)
             chunkPos = 0
             if (chunks.isNotEmpty()) {
@@ -403,7 +409,6 @@ object TtsSessionManager {
                 speakCurrentChunk()
                 return
             }
-            paraPos++
         }
         chapterDone()
     }

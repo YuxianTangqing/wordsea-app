@@ -51,8 +51,13 @@ android {
         //   常引擎上无害空炮）；音色下拉升级「引擎+音色」混合列表（eng:pkg=APP 内换
         //   引擎直达+voice:name 当前引擎音色）——治兜底引擎 voices 空=下拉只剩「自动」
         //   且系统设置换音色生效但 APP 内无法换。
-        versionCode = 21
-        versionName = "2.0.6"
+        // 批⑨R4 2.0.7 (22)：⭐「不断重复一段」真根因=TtsSessionManager.advance 结构
+        //   缺陷——chunkPos 推进路径从不自增+paraPos 只在 skip/空段走=正常段永远停
+        //   在同段第一块循环（与引擎无关所有设备皆然；三轮引擎侧排查全打错靶层）。
+        //   修=段内 chunkPos++ 推进+段尽 ++paraPos 连读。音色下拉「只有自动」=懒初始
+        //   化期 appCtx/engine 俱空——桥 ttsVoices 首调 warm 预热（引擎条目段同步生效）。
+        versionCode = 22
+        versionName = "2.0.7"
     }
 
     signingConfigs {

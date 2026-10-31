@@ -104,9 +104,13 @@ class ShellBridge(
     @JavascriptInterface
     fun ttsSessionState(): String = TtsSessionManager.stateJson()
 
-    /** 当前引擎 zh 音色列表 JSON（[{"id","name"}]；引擎未就绪="[]"） */
+    /** 当前引擎 zh 音色列表 JSON（[{"id","name"}]；引擎未就绪="[]"）。
+     *  批⑨R4：面板一开 web 即拉本口——引擎懒初始化期 appCtx/engine 俱空=恒 "[]"，
+     *  站主实录「下拉只有自动」。首调顺手 warm（存 appCtx+触发 init）：引擎条目段
+     *  依赖 appCtx（同步立即生效），音色段等 init 完成后重开面板可见。 */
     @JavascriptInterface
     fun ttsVoices(): String {
+        TtsEngineHolder.warm(activity.applicationContext)
         val arr = org.json.JSONArray()
         TtsEngineHolder.voices().forEach { (id, name) ->
             arr.put(org.json.JSONObject().put("id", id).put("name", name))
