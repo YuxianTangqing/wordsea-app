@@ -33,6 +33,10 @@ object TtsEngineHolder {
     private var enginePkg: String? = null // 实际选中的引擎包名（reinit 复用）
     private var triedPkgs = mutableSetOf<String>()
 
+    /** 批⑨R 代际令牌：每代 createEngine 自增；fallback/reinit 换代后旧实例的迟到
+     *  onInit 直接作废（多引擎兜底链上旧引擎的 ERROR 回调曾可把刚建的新引擎误杀） */
+    private var generation = 0
+
     @Volatile
     var ready = false
         private set
@@ -81,10 +85,11 @@ object TtsEngineHolder {
 
     private fun createEngine(appContext: Context, pkg: String?) {
         if (pkg != null) triedPkgs.add(pkg)
+        val gen = ++generation
         val tts = if (pkg != null) {
-            TextToSpeech(appContext, { status -> main.post { onInit(status, appContext, pkg) } }, pkg)
+            TextToSpeech(appContext, { status -> main.post { if (gen == generation) onInit(status, appContext, pkg) } }, pkg)
         } else {
-            TextToSpeech(appContext) { status -> main.post { onInit(status, appContext, null) } }
+            TextToSpeech(appContext) { status -> main.post { if (gen == generation) onInit(status, appContext, null) } }
         }
         engine = tts
         enginePkg = pkg
@@ -93,7 +98,7 @@ object TtsEngineHolder {
     private fun onInit(status: Int, appContext: Context, pkg: String?) {
         val eng = engine ?: return
         if (status != TextToSpeech.SUCCESS) {
-            fallbackOrReport(appContext, pkg, "init-failed")
+            fallbackOrReport(appContext, pkg, "init-failed($status)")
             return
         }
         eng.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -141,11 +146,22 @@ object TtsEngineHolder {
         return r >= 0 // LANG_MISSING_DATA(-1)/LANG_NOT_SUPPORTED(-2) 都算不可用
     }
 
-    /** 当前引擎不可用 → 枚举设备其他引擎逐个试（上限 3 个）；全败如实上报 */
+    /** 当前引擎不可用 → 枚举设备其他引擎逐个试（上限 3 个）；全败如实上报。
+     *  批⑨R：Manifest queries 补 TTS_SERVICE 后枚举在 30+ 真正可见；默认引擎（pkg=null）
+     *  失败时读系统默认引擎包名记入 triedPkgs——否则 candidates.first() 可能仍是它白白
+     *  烧一轮重试。报错文案带失败码与已试清单（真机定位器）。 */
     private fun fallbackOrReport(appContext: Context, failedPkg: String?, reason: String) {
         runCatching { engine?.shutdown() }
         engine = null
         ready = false
+        if (failedPkg == null) {
+            runCatching {
+                val def = android.provider.Settings.Secure.getString(
+                    appContext.contentResolver, android.provider.Settings.Secure.TTS_DEFAULT_SYNTH
+                )
+                if (!def.isNullOrBlank()) triedPkgs.add(def)
+            }
+        }
         val candidates = runCatching {
             // 系统引擎解析（TTS_SERVICE intent）：常见=讯飞/谷歌/厂商。常量在嵌套接口
             // Engine 里（Java 实现类可直引 TextToSpeech.ENGINE_INTENT_ACTION，Kotlin
@@ -160,11 +176,13 @@ object TtsEngineHolder {
             createEngine(appContext, candidates.first())
             return
         }
-        // 全败：清回调并如实上报（web toast 引导去系统设置装/换引擎）
-        val msg = if (reason == "no-chinese") {
-            "设备语音引擎缺中文语音数据（系统设置→文字转语音输出 可安装或切换引擎）"
+        // 全败：清回调并如实上报（web toast 引导去系统设置装/换引擎；批⑨R 文案带
+        // 失败码+枚举数+已试清单——真机一跑便知卡在哪层）
+        val tried = (listOfNotNull(enginePkg) + triedPkgs.toList()).distinct().joinToString("/")
+        val msg = if (reason.startsWith("no-chinese")) {
+            "设备语音引擎缺中文语音数据（系统设置→文字转语音输出 可安装或切换引擎；已试 $tried）"
         } else {
-            "语音引擎初始化失败（系统设置→文字转语音输出 可尝试切换引擎）"
+            "语音引擎初始化失败 $reason（备选 ${candidates.size}；已试 $tried；系统设置→文字转语音输出 切换引擎后重试）"
         }
         val cbs = readyCallbacks.toList()
         readyCallbacks.clear()

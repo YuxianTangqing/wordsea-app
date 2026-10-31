@@ -15,12 +15,18 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- 包可见性：外跳送系统浏览器（ACTION_VIEW https）需要；批③ 三家登录宿主 App
-         可见性（微信 isWXAppInstalled 探测 / QQ 拉起与 WAP 兜底 / 支付宝预留） -->
+         可见性（微信 isWXAppInstalled 探测 / QQ 拉起与 WAP 兜底 / 支付宝预留）；
+         批⑨R TTS_SERVICE——targetSdk 30+ 枚举设备语音引擎（TtsEngineHolder 多引擎
+         兜底 queryIntentServices）需要，缺声明=兜底链空转只剩默认引擎一发（站主真机
+         「语音引擎初始化失败」实录：系统试听可用但 APP 绑定默认引擎失败） -->
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
         <package android:name="com.tencent.mm" />
         <package android:name="com.tencent.mobileqq" />

@@ -37,9 +37,13 @@ android {
         //   （锁屏/后台连读+通知栏三键+耳机线控+定时真可用+进度心跳+token rotate）；
         //   桥增会话五法 ttsStartSession/ttsControl/ttsSessionState/ttsVoices/ttsSetVoice
         //   （音色选择）；TtsController 退役→进程级 TtsEngineHolder（修「引擎启动中
-        //   死循环」三坑+多引擎挑选）。批⑧ B站 SDK 若后落地顺延 19/2.0.4。
-        versionCode = 18
-        versionName = "2.0.3"
+        //   死循环」三坑+多引擎挑选）。
+        // 批⑨R 2.0.4 (19)：TTS 引擎兜底真修——Manifest queries 补 TTS_SERVICE（30+
+        //   枚举他引擎需要；缺声明=多引擎兜底链空转只剩默认引擎一发）+ 代际令牌防
+        //   迟到 onInit 误杀新引擎 + 默认引擎失败记入已试集（不烧冤枉轮）+ 报错文案
+        //   带失败码/备选数/已试清单（真机定位器）。批⑧ B站 SDK 若后落地顺延 20/2.0.5。
+        versionCode = 19
+        versionName = "2.0.4"
     }
 
     signingConfigs {
