@@ -18,7 +18,9 @@
          可见性（微信 isWXAppInstalled 探测 / QQ 拉起与 WAP 兜底 / 支付宝预留）；
          批⑨R TTS_SERVICE——targetSdk 30+ 枚举设备语音引擎（TtsEngineHolder 多引擎
          兜底 queryIntentServices）需要，缺声明=兜底链空转只剩默认引擎一发（站主真机
-         「语音引擎初始化失败」实录：系统试听可用但 APP 绑定默认引擎失败） -->
+         「语音引擎初始化失败」实录：系统试听可用但 APP 绑定默认引擎失败）；
+         批⑧ B站 SDK——拉起走隐式 VIEW intent bilibili.oauth://main（非包名直跳），
+         可见性须 scheme 形态（反汇编实锤，B站客户端与 SDK 内置 H5 兜底共用） -->
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
@@ -27,6 +29,10 @@
         </intent>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="bilibili.oauth" />
         </intent>
         <package android:name="com.tencent.mm" />
         <package android:name="com.tencent.mobileqq" />

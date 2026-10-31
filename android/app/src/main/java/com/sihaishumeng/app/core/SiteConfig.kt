@@ -21,10 +21,12 @@ object SiteConfig {
     val OAUTH_SUFFIXES = listOf(".qq.com", ".alipay.com", ".bilibili.com")
 
     // 批③ 四家登录 appid（公开标识可硬编码——AppKey/Secret 只进 web 仓服务器 .env，
-    // 本仓零密钥铁律）。B站零 appid：原生走网页流（client_id 在服务端）。
+    // 本仓零密钥铁律）。B站批③~批⑦ 零 appid（网页流 client_id 在服务端）；批⑧ SDK
+    // 化起移动应用 appid 进壳（公开标识；App Secret 仍只进服务器 .env）。
     const val WECHAT_APP_ID = "wxd3b4d2acfec510e2"
     const val QQ_APP_ID = "1905824730"
     const val ALIPAY_APP_ID = "2021007110603730"
+    const val BILI_CLIENT_ID = "7a3a27dff0d04936"
     // 支付宝 SDK 回跳 scheme（批⑤R）：传给 OpenAuthTask.execute 首参，支付宝 App 授权完
     // 按它拼隐式 intent 回跳到 manifest 里 AlipayResultActivity 的同 scheme filter（原生
     // 钱包与 H5 中转两链共用）。⚠️ 必须**独立于** MainActivity 的 sihaishumeng——两个

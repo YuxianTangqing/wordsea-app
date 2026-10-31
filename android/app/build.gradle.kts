@@ -117,8 +117,14 @@ android {
         //   暗化）；F 点驱动替代 θ（行程比例判阈+hermite 对 t 插值+尾段 fade 渐出）。
         //   绘制序天然分界（整页位图+镜像盖翻起区）——全程 INTERSECTION 裁剪
         //   （硬件加速 Canvas 不支持 Region.Op.DIFFERENCE）。
-        versionCode = 31
-        versionName = "2.0.16"
+        // 批⑧ SDK 2.0.17 (32)：B站登录/绑定换 accountoauth SDK 单路（BiliSdkAuth——
+        //   拉起B站客户端授权，未装自兜 SDK 内置 H5；BiliAuthActivity 浮层网页流退役
+        //   但保留给 GitHub 绑定）。⚠️预备内测批：union_id 探针复验（服务器回填脚本）
+        //   通过前不发正式窗——web 侧端点 BILI_MOBILE_* 双键仍留空=404 隐藏，真机
+        //   内测验收只到「拉起授权页+取消」（union_id 未批走完授权=openid 键裂号）。
+        //   探针 ❌ 则本版本号作废（下批顺延 33/2.0.18 记档）。
+        versionCode = 32
+        versionName = "2.0.17"
     }
 
     signingConfigs {
@@ -168,4 +174,9 @@ dependencies {
     // consumer proguard 随 AAR 自动生效；回跳接收器 AlipayResultActivity 声明在 AAR
     // manifest 内，走显式组件不占 sihaishumeng scheme）。
     implementation("com.alipay.sdk:alipaysdk-android:15.8.42")
+    // 批⑧ B站 accountoauth SDK：无 maven 分发，官方 zip 手动 AAR 入 libs（24.9KB；
+    // consumer proguard.txt 随 AAR 自动生效）。拉起=隐式 VIEW bilibili.oauth://main
+    // （queries 须 scheme 形态）；未装B站客户端自兜 OauthWebActivity（H5 授权页，
+    // AAR manifest 自带声明）。SDK 出包 gate 在 union_id 探针复验通过之后。
+    implementation(files("libs/accountoauth-2.0.0.0.aar"))
 }

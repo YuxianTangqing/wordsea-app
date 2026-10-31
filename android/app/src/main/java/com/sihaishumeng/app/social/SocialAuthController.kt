@@ -14,9 +14,10 @@ import org.json.JSONObject
  * 四家形态：
  * - 微信：SendAuth code 上送（WXEntryActivity 回跳，见 WechatAuth）
  * - QQ：SDK 回调直接给 accessToken+openid 上送（unionid 由服务端 /me 复核+获取）
- * - B站：零 SDK——POST /sign-in/social 拿授权 url，BiliAuthActivity（WebView）走完整
- *   网页回调链；新号落地页 URL 回传网页打开（M340 邀请码经落地页兑换——批③ 收屏
- *   吞页 bug 的根治面）
+ * - B站：批⑧ accountoauth SDK 拉起B站客户端授权（未装自兜 SDK 内置 H5），code
+ *   上送 app-social 端点（union_id 桥在服务端 resolveBilibiliIdentity；B站 新号
+ *   落地页 redirect 语义随 SDK 流由服务端响应直出）。批③~批⑦ 的浮层网页流
+ *   （BiliAuthActivity）从登录/绑定链退役，仍保留给 GitHub 绑定态
  * - 支付宝：官方 SDK OpenAuthTask 拉起，auth_code 上送换 user_id
  *
  * 结果形状（emit 的 JSON）：{ok, code?, message?, isRegister?, user?, redirect?}
@@ -121,7 +122,7 @@ class SocialAuthController(private val activity: Activity) {
                     }
                 }
             }
-            Provider.BILIBILI -> if (link) startWebLink("bilibili") else startBili()
+            Provider.BILIBILI -> startBiliSdk()
             Provider.ALIPAY -> AlipayAuth.signIn(activity) { authCode, message ->
                 // 回调线程无主线程承诺——runOnUiThread 收口（主线程调用=立即执行）
                 activity.runOnUiThread {
@@ -133,10 +134,12 @@ class SocialAuthController(private val activity: Activity) {
         }
     }
 
-    /** QQ SDK 的 onActivityResult 透传（宿主 MainActivity 收到后调这里——批④W 宿主
-     *  从 LoginActivity 换成 Main，透传铁律不变）。 */
+    /** QQ/B站 SDK 的 onActivityResult 透传（宿主 MainActivity 收到后调这里——批④W
+     *  宿主从 LoginActivity 换成 Main，透传铁律不变；批⑧ B站 OAuthManager 实例
+     *  透传同口接入）。 */
     fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         QqAuth.onActivityResult(requestCode, resultCode, data)
+        BiliSdkAuth.onActivityResult(requestCode, resultCode, data)
     }
 
     // ── 内部 ──
@@ -205,38 +208,16 @@ class SocialAuthController(private val activity: Activity) {
         }
     }
 
-    /** B站网页流：/sign-in/social 拿授权 url → WebView 承载整条回调链。新号落地页
-     *  （/settings/account-security?welcome=1[&invite=]）由 BiliAuthActivity 回传，
-     *  经 redirect 给网页打开（M340 邀请码兑换闭环——批③ 收屏吞掉落地页，邀请从未
-     *  真正兑换）。 */
-    private fun startBili() {
-        val newUserCb = if (invite != null) {
-            "/settings/account-security?welcome=1&invite=${java.net.URLEncoder.encode(invite, "UTF-8")}"
-        } else {
-            "/settings/account-security?welcome=1"
-        }
-        val body = JSONObject()
-            .put("provider", "bilibili")
-            .put("callbackURL", "/")
-            .put("errorCallbackURL", "/auth/login?social=error")
-            .put("newUserCallbackURL", newUserCb)
-        ApiClient.postJson("/api/auth/sign-in/social", body) { code, json ->
-            val url = json?.optString("url")
-            if (code == 200 && !url.isNullOrEmpty()) {
-                BiliAuthActivity.launch(activity, url) { ok, finalUrl ->
-                    finish(
-                        if (ok) {
-                            resultJson(ok = true).apply {
-                                finalUrl?.takeIf { it.contains("/settings/account-security") }
-                                    ?.let { put("redirect", it) }
-                            }
-                        } else {
-                            resultJson(ok = false, code = "AUTH", message = "B站授权未完成")
-                        }
-                    )
-                }
-            } else {
-                finish(resultJson(ok = false, code = "SERVER", message = "B站登录暂不可用（${if (code < 0) "网络异常" else code}）"))
+    /** 批⑧ B站 SDK 流：拉起B站客户端授权（未装自兜 SDK 内置 H5）→ code 上送
+     *  app-social 端点（登录/绑定 mode 同款——signInApp 按 linkMode 分发；union_id
+     *  桥/新号开号/redirect 落地页全在服务端响应）。code 空=取消或失败（msg 带B站
+     *  侧错误信息——后台签名/包名配置错的诊断定位器）。回调线程无主线程承诺，
+     *  runOnUiThread 收口（支付宝同款）。 */
+    private fun startBiliSdk() {
+        BiliSdkAuth.start(activity) { code, msg ->
+            activity.runOnUiThread {
+                if (code != null) signInApp("bilibili", JSONObject().put("code", code))
+                else finish(resultJson(ok = false, code = "AUTH", message = "B站授权未完成${msg?.let { "（$it）" } ?: ""}"))
             }
         }
     }
@@ -253,9 +234,11 @@ class SocialAuthController(private val activity: Activity) {
     }
 
     /** 收口：清 busy、取走回呼；emit 兜底切主线程（evaluateJavascript 须 UI 线程；
-     *  已在主线程时 runOnUiThread=立即执行）。 */
+     *  已在主线程时 runOnUiThread=立即执行）。批⑧ 附 BiliSdkAuth.finish（清 SDK
+     *  静态引用防 Activity 泄漏——取消/超时/换家族收口统一走这里，幂等）。 */
     private fun finish(result: JSONObject) {
         busy = false
+        BiliSdkAuth.finish()
         val cb = emit
         emit = null
         if (cb != null) activity.runOnUiThread { cb(result) }
