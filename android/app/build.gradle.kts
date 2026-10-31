@@ -56,8 +56,15 @@ android {
         //   在同段第一块循环（与引擎无关所有设备皆然；三轮引擎侧排查全打错靶层）。
         //   修=段内 chunkPos++ 推进+段尽 ++paraPos 连读。音色下拉「只有自动」=懒初始
         //   化期 appCtx/engine 俱空——桥 ttsVoices 首调 warm 预热（引擎条目段同步生效）。
-        versionCode = 22
-        versionName = "2.0.7"
+        // 批⑨R5 2.0.8 (23)：⭐音色下拉三修「都是音色·zh 选谁都不变」——①复合唯一键
+        //   voice:name#localeTag+按 (name,tag) 去重（站主引擎 voices name 恒 "zh"=N 行
+        //   撞同 id，setVoice firstOrNull 恒命中第一条）；②name 形似语言码时标签用
+        //   locale 中文显示名（「音色·中文（中国大陆）」）；③桥增 ttsOpenVoiceSettings
+        //   一键直达系统语音设置页（厂商专有发音人不经 getVoices() 暴露的唯一正路）+
+        //   回程 idle 态自动重 init 生效。批⑧ SDK 顺延 24/2.0.9（等B站工单批 union_id
+        //   权限）。
+        versionCode = 23
+        versionName = "2.0.8"
     }
 
     signingConfigs {

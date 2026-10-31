@@ -33,6 +33,7 @@ import com.sihaishumeng.app.core.SiteConfig
 import com.sihaishumeng.app.core.bridge.ShellBridge
 import com.sihaishumeng.app.core.device.KeyboardInsetController
 import com.sihaishumeng.app.core.tts.TtsEngineHolder
+import com.sihaishumeng.app.core.tts.TtsSessionManager
 import com.sihaishumeng.app.core.tts.WebChannel
 import com.sihaishumeng.app.core.update.SelfUpdateController
 import com.sihaishumeng.app.core.web.WebViewRouter
@@ -428,6 +429,12 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         // M-APP15：后台完成的更新包在此补弹安装器（后台 startActivity 被静默拦的兜底）
         selfUpdate.tryStartInstall()
+        // 批⑨R5：系统语音设置页（桥 ttsOpenVoiceSettings 直达）换引擎/默认发音人回程
+        // ——idle 态重 init 即时生效；会话播放中不打断（显式音色 reinit 重放仍优先，
+        // 「自动」态 setLanguage 吃引擎新默认发音人）
+        if (TtsEngineHolder.consumeVoiceSettingsJump() && !TtsSessionManager.active()) {
+            TtsEngineHolder.reinit(this)
+        }
     }
 
     override fun onDestroy() {

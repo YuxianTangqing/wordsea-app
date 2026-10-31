@@ -2,8 +2,10 @@ package com.sihaishumeng.app.core.bridge
 
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import android.webkit.JavascriptInterface
 import com.sihaishumeng.app.core.device.KeyboardInsetController
 import com.sihaishumeng.app.core.tts.TtsEngineHolder
@@ -15,8 +17,9 @@ import com.sihaishumeng.app.core.tts.TtsSessionManager
  * 转打进程级 TtsEngineHolder，签名/返回语义不变），web 层零改动同时适配轻壳与
  * 本原生工程。批④W 第 9 方法 socialLogin（登录页网页化）；批⑨ 新增会话五法
  * （ttsStartSession/ttsControl/ttsSessionState/ttsVoices/ttsSetVoice——听书会话
- * 下沉原生前台服务+音色选择）——增量不在冻结列，web 特征探测（typeof）回落旧
- * 逐块模式=双向部署安全。
+ * 下沉原生前台服务+音色选择）；批⑨R5 新增 ttsOpenVoiceSettings（系统语音设置页
+ * 一键直达——厂商引擎专有发音人不经 getVoices() 暴露的唯一正路）——增量不在冻结
+ * 列，web 特征探测（typeof）回落旧逐块模式=双向部署安全。
  *
  * 只暴露只读版本号+声明性动作——授权大域页面（qq/alipay/bilibili/github）拿到的
  * 也只是数字与无副作用的开关。@JavascriptInterface 方法跑在 binder 线程。
@@ -121,6 +124,30 @@ class ShellBridge(
     /** 设置音色（立即作用于后续朗读；false=失效，web 提示重选回「自动」） */
     @JavascriptInterface
     fun ttsSetVoice(voiceId: String): Boolean = TtsEngineHolder.setVoice(voiceId)
+
+    /** 批⑨R5：跳系统「文字转语音输出」设置页（引擎与厂商专有发音人的官方管理口——
+     *  站主 2.0.7 实录引擎 voices name 恒 "zh"=发音人列表不经标准 API 暴露）。置位
+     *  回程标记（MainActivity.onResume 消费：idle 态重 init 即时生效）。旧 web 特征
+     *  探测（typeof）自动隐藏入口。binder 线程只做 resolve 探测，start 走主线程。
+     *  ⭐「android.settings.TTS_SETTINGS」是 Settings 隐藏声明（公开 SDK 无常量——
+     *  javap 实证只有 ACTION_VOICE_INPUT_SETTINGS；AOSP 与主流厂商 ROM 均注册该
+     *  action）——raw action 串不受隐藏 API 限制；个别 ROM 未注册则回落设置首页。 */
+    @JavascriptInterface
+    fun ttsOpenVoiceSettings(): Boolean {
+        val ctx = activity.applicationContext
+        val candidates = listOf(
+            Intent("android.settings.TTS_SETTINGS"),
+            Intent(Settings.ACTION_SETTINGS)
+        )
+        val chosen = candidates.firstOrNull {
+            runCatching {
+                ctx.packageManager.resolveActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), 0)
+            }.getOrNull() != null
+        } ?: return false
+        TtsEngineHolder.markVoiceSettingsJump()
+        activity.runOnUiThread { runCatching { ctx.startActivity(chosen) } }
+        return true
+    }
 
     /** M249 初始同步：页面加载时键盘已开的罕见态（SPA 恢复/换页）。物理 px；0=键盘关。
      *  只读无动作面（与 versionName 同口径，三方页拿到的只是数字）。 */

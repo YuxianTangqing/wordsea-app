@@ -50,6 +50,22 @@ object TtsEngineHolder {
     /** 用户音色（跨 reinit 重放；null=自动=引擎默认中文音色） */
     private var currentVoiceId: String? = null
 
+    /** 批⑨R5 系统语音设置跳转回程标记（桥 ttsOpenVoiceSettings 置位；MainActivity
+     *  onResume 消费——idle 态重 init 让系统页换的引擎/默认发音人即时生效，进程级
+     *  实例不缓存旧态；会话播放中不打断） */
+    @Volatile
+    private var voiceSettingsJumpPending = false
+
+    fun markVoiceSettingsJump() {
+        voiceSettingsJumpPending = true
+    }
+
+    fun consumeVoiceSettingsJump(): Boolean {
+        val v = voiceSettingsJumpPending
+        voiceSettingsJumpPending = false
+        return v
+    }
+
     /** 引擎初始化结果回调（ok=false 时 reason 给 web 提示） */
     private val readyCallbacks = CopyOnWriteArrayList<(Boolean, String) -> Unit>()
 
@@ -153,7 +169,7 @@ object TtsEngineHolder {
     private fun applyVoiceOrLanguage(eng: TextToSpeech): Boolean {
         val vid = currentVoiceId
         if (vid != null) {
-            val v = eng.voices?.firstOrNull { it.name == vid }
+            val v = findVoice(eng, vid) // 批⑨R5 复合键精确匹配（name-only 回落兼容存量）
             if (v != null && eng.setVoice(v) == TextToSpeech.SUCCESS) return true
             // 音色失效（换引擎/卸语音数据）：回落语言检查，web 侧 ttsSetVoice 失败提示重选
         }
@@ -205,23 +221,35 @@ object TtsEngineHolder {
         cbs.forEach { it(false, msg) }
     }
 
-    /** 批⑨R3 混合列表：设备全部引擎（id=eng:包名，名=引擎应用名）+ 当前引擎 zh 音色
-     *  （id=voice:Voice.name）。站主真机实录：兜底引擎 voices 空=下拉只剩「自动」且
-     *  系统设置换音色生效但 APP 内无法换——引擎级自选=APP 内直达（切引擎三参重建）。
-     *  web 下拉只吃 [{id,name}] 零改动；旧存量裸 voiceId 无前缀=不匹配回落「自动」✓ */
+    /** 批⑨R3 混合列表：设备全部引擎（id=eng:包名，名=引擎应用名）+ 当前引擎 zh 音色。
+     *  站主真机实录：兜底引擎 voices 空=下拉只剩「自动」且系统设置换音色生效但 APP 内
+     *  无法换——引擎级自选=APP 内直达（切引擎三参重建）。
+     *  ⭐批⑨R5 复合键根治「都是音色·zh」：站主 2.0.7 实录引擎 voices 的 name 恒 "zh"
+     *  （厂商引擎按语言码命名）=N 行同 id 同名、setVoice firstOrNull 恒命中第一条=
+     *  选谁都同一个音色。现音色 id=voice:name#localeTag（唯一）+按 (name,tag) 去重
+     *  （同名同 tag=同声重复条目）；name 形似语言码时标签改 locale 中文显示名
+     *  （「音色·中文（中国大陆）」），人声名原样展示。web 下拉只吃 [{id,name}] 零改动；
+     *  2.0.7 存量裸 voiceId（无 # 段）=findVoice name-only 回落兼容✓ */
     fun voices(): List<Pair<String, String>> {
         val out = mutableListOf<Pair<String, String>>()
         val ctx = appCtx
         if (ctx != null) {
             runCatching {
                 val pm = ctx.packageManager
+                // 批⑨R5 补标：默认引擎态（enginePkg==null）「（当前）」标记恒缺席——
+                // 读系统默认引擎包名对齐（站主可辨当前引擎行）
+                val curPkg = enginePkg ?: runCatching {
+                    android.provider.Settings.Secure.getString(
+                        ctx.contentResolver, android.provider.Settings.Secure.TTS_DEFAULT_SYNTH
+                    )
+                }.getOrNull()
                 val intent = Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE)
                     .addCategory("android.intent.category.DEFAULT")
                 pm.queryIntentServices(intent, 0).mapNotNull { it.serviceInfo }.forEach { si ->
                     val label = runCatching {
                         pm.getApplicationLabel(si.applicationInfo).toString()
                     }.getOrDefault(si.packageName)
-                    val mark = if (si.packageName == enginePkg) "（当前）" else ""
+                    val mark = if (si.packageName == curPkg) "（当前）" else ""
                     out.add("eng:${si.packageName}" to "引擎·$label$mark")
                 }
             }
@@ -229,17 +257,58 @@ object TtsEngineHolder {
         val eng = engine
         if (eng != null) {
             runCatching {
+                val seen = HashSet<String>()
                 eng.voices
                     ?.filter { it.locale?.language?.equals("zh", ignoreCase = true) == true }
-                    ?.take(30) // 长列表防下拉爆炸（部分引擎暴露几十个）
-                    ?.forEach { v -> out.add("voice:${v.name}" to "音色·${v.name}") }
+                    ?.forEach { v ->
+                        val key = "${v.name}#${v.locale?.toLanguageTag() ?: ""}"
+                        if (key !in seen) {
+                            seen.add(key)
+                            if (seen.size <= 30) { // 长列表防下拉爆炸（部分引擎暴露几十个）
+                                out.add("voice:$key" to "音色·${voiceLabel(v)}")
+                            }
+                        }
+                    }
             }
         }
         return out
     }
 
+    /** name 形似语言码（==language / ==tag / ==locale.toString()，忽略大小写与 -_ 归一）
+     *  → locale 中文显示名（「中文（中国大陆）」；displayName 退化回落 tag）；否则原样
+     *  name（谷歌 cmn-cn-x-…/讯飞人声名自带区分度） */
+    private fun voiceLabel(v: Voice): String {
+        val name = v.name ?: ""
+        val tag = v.locale?.toLanguageTag() ?: ""
+        val norm = { s: String -> s.lowercase().replace('_', '-') }
+        val isCode = name.isBlank() ||
+            name.equals(v.locale?.language ?: "", true) ||
+            norm(name) == norm(tag) ||
+            norm(name) == norm(v.locale?.toString() ?: "")
+        if (!isCode) return name
+        val dn = runCatching { v.locale?.getDisplayName(Locale.CHINESE) }.getOrNull()
+        return if (!dn.isNullOrBlank() && dn != tag) dn else tag.ifBlank { name }
+    }
+
+    /** voiceId 精确找 Voice：拆尾段 # 按 (name,tag) 双精确；失配回落 name-only
+     *  （2.0.7 存量裸 "voice:zh" 与引擎 tag 归一差异双兼容） */
+    private fun findVoice(eng: TextToSpeech, voiceId: String): Voice? {
+        val raw = voiceId.removePrefix("voice:")
+        val idx = raw.lastIndexOf('#')
+        val name = if (idx >= 0) raw.substring(0, idx) else raw
+        val tag = if (idx >= 0) raw.substring(idx + 1) else null
+        val vs = runCatching { eng.voices }.getOrDefault(null) ?: return null
+        if (tag != null) {
+            vs.firstOrNull {
+                it.name == name && it.locale?.toLanguageTag()?.equals(tag, ignoreCase = true) == true
+            }?.let { return it }
+        }
+        return vs.firstOrNull { it.name == name }
+    }
+
     /** 设置音色/引擎（立即作用于后续 speak）。eng:=换引擎重建（音色清空回「自动」）；
-     *  voice:=当前引擎内选音色。false=失效（web 提示重选回「自动」） */
+     *  voice:=当前引擎内选音色（批⑨R5 复合键 name#tag，name-only 回落兼容 2.0.7
+     *  存量）。false=失效（web 提示重选回「自动」） */
     fun setVoice(voiceId: String): Boolean {
         if (voiceId.startsWith("eng:")) {
             val pkg = voiceId.removePrefix("eng:")
@@ -248,11 +317,10 @@ object TtsEngineHolder {
             reinitTo(ctx, pkg)
             return true
         }
-        val vName = voiceId.removePrefix("voice:")
         val eng = engine ?: return false
-        val v = runCatching { eng.voices }.getOrDefault(null)?.firstOrNull { it.name == vName } ?: return false
+        val v = findVoice(eng, voiceId) ?: return false
         val ok = runCatching { eng.setVoice(v) }.getOrDefault(TextToSpeech.ERROR) == TextToSpeech.SUCCESS
-        if (ok) currentVoiceId = vName
+        if (ok) currentVoiceId = voiceId
         return ok
     }
 
