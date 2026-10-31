@@ -125,26 +125,35 @@ class ShellBridge(
     @JavascriptInterface
     fun ttsSetVoice(voiceId: String): Boolean = TtsEngineHolder.setVoice(voiceId)
 
-    /** 批⑨R5/R6：直达系统语音设置的发音人管理（引擎与厂商专有发音人的官方管理口——
-     *  站主 2.0.8 实录引擎 voices name 恒 "zh"=发音人列表不经标准 API 暴露，APP 内
-     *  列出不可能；本入口=最短路径）。置位回程标记（MainActivity.onResume 消费：
-     *  idle 态重 init 即时生效）。旧 web 特征探测（typeof）自动隐藏入口。binder 线程
-     *  只做 resolve 探测，start 走主线程。
-     *  ⭐R6 三级直达链（站主 ROM 实测 TTS_SETTINGS 未注册=点了跳设置主页）：①
-     *  「android.settings.TTS_SETTINGS」隐藏声明 raw 串（公开 SDK 无常量，javap
-     *  实证；AOSP/部分 ROM 注册——注册了=直达「文字转语音输出」页）②
-     *  ACTION_INPUT_METHOD_SETTINGS（公开常量「语言和输入法」——「文字转语音
-     *  输出」在其内一步）③设置主页兜底。注：引擎自带设置页无公开契约（javap 实证
-     *  TextToSpeech.Engine 无 CONFIGURE 类 action、ServiceInfo 无 settings 字段）。 */
+    /** 批⑨R5/R6/R7：直达发音人管理（引擎与厂商专有发音人的官方管理口——站主 2.0.8
+     *  实录引擎 voices name 恒 "zh"=发音人列表不经标准 API 暴露，APP 内列出不可能；
+     *  本入口=最短路径）。置位回程标记（MainActivity.onResume 消费：idle 态重 init
+     *  即时生效）。旧 web 特征探测（typeof）自动隐藏入口。binder 线程只做 resolve
+     *  探测，start 走主线程。
+     *  ⭐R7 四级直达链（逐档真机实录收敛）：①TTS 引擎应用本体拉起（getLaunchIntent
+     *  ForPackage——站主引擎 label「语音设置」，国产 TTS 引擎应用界面多含发音人
+     *  管理；无 launcher 落下档）②「android.settings.TTS_SETTINGS」隐藏声明 raw
+     *  串（公开 SDK 无常量，javap 实证；AOSP/部分 ROM 注册=直达）③ACTION_INPUT_
+     *  METHOD_SETTINGS（站主 ROM 实测=输入法页非 TTS，降为末档前备选）④设置主页
+     *  兜底。注：引擎设置页无公开契约（javap 实证 Engine 无 CONFIGURE action、
+     *  ServiceInfo 无 settings 字段）。 */
     @JavascriptInterface
     fun ttsOpenVoiceSettings(): Boolean {
         val ctx = activity.applicationContext
         val pm = ctx.packageManager
-        val candidates = listOf(
-            Intent("android.settings.TTS_SETTINGS"),
-            Intent(Settings.ACTION_INPUT_METHOD_SETTINGS),
-            Intent(Settings.ACTION_SETTINGS)
-        )
+        val candidates = mutableListOf<Intent>()
+        runCatching {
+            val svc = pm.resolveService(
+                Intent(android.speech.tts.TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE)
+                    .addCategory("android.intent.category.DEFAULT"), 0
+            )?.serviceInfo
+            if (svc != null) {
+                pm.getLaunchIntentForPackage(svc.packageName)?.let { candidates.add(it) }
+            }
+        }
+        candidates.add(Intent("android.settings.TTS_SETTINGS"))
+        candidates.add(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+        candidates.add(Intent(Settings.ACTION_SETTINGS))
         val chosen = candidates.firstOrNull {
             runCatching { pm.resolveActivity(it, 0) }.getOrNull() != null
         } ?: return false

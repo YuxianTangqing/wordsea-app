@@ -72,8 +72,15 @@ android {
         //   步〕→主页兜底）。站主设备单引擎（「语音设置」）+发音人不走 getVoices()=
         //   APP 内列出不可能（平台限制），直达链+回程自动生效=最优解。批⑧ SDK 顺延
         //   25/2.0.10（等B站工单批 union_id 权限）。
-        versionCode = 24
-        versionName = "2.0.9"
+        // 批⑨R7 2.0.10 (25)：R6 直达链站主真机返修——INPUT_METHOD_SETTINGS 落的是
+        //   「输入法」页非 TTS（ROM 分页），链首改 TTS 引擎应用本体拉起
+        //   （getLaunchIntentForPackage——站主引擎 label「语音设置」，国产 TTS 引擎
+        //   应用界面多含发音人管理；无 launcher 落 TTS_SETTINGS raw→输入法→主页）；
+        //   web 侧配套=AppDownloadCta 对有桥 <2.0.9 版本加一次性手动安装提示（自举
+        //   困境交底：修复在「被升级到的版本」里，2.0.8→2.0.9 那步必手动，此后恢复
+        //   自动）。批⑧ SDK 顺延 26/2.0.11。
+        versionCode = 25
+        versionName = "2.0.10"
     }
 
     signingConfigs {
