@@ -46,8 +46,13 @@ android {
         //   擎实录「不断重复一段」=推进死+看门狗 30s 重读循环）；speak 后轮询
         //   isSpeaking 连续两轮静默补发 done（消费方按 utteranceId 幂等），speakGen
         //   代际顶掉（stop/reinit/换引擎自止）。
-        versionCode = 20
-        versionName = "2.0.5"
+        // 批⑨R3 2.0.6 (21)：站主 2.0.5 实测双欠奉引擎（onDone+isSpeaking 全谎报）→
+        //   第三保险=按字数估算时长到点强制推进（中文≈3.2 字/秒×语速×1.5 系数，正
+        //   常引擎上无害空炮）；音色下拉升级「引擎+音色」混合列表（eng:pkg=APP 内换
+        //   引擎直达+voice:name 当前引擎音色）——治兜底引擎 voices 空=下拉只剩「自动」
+        //   且系统设置换音色生效但 APP 内无法换。
+        versionCode = 21
+        versionName = "2.0.6"
     }
 
     signingConfigs {

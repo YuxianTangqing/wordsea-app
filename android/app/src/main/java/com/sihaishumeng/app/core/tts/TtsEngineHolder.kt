@@ -40,6 +40,9 @@ object TtsEngineHolder {
     /** 批⑨R2 朗读块代际：新 speak 顶掉旧块的完成探测轮询（stop/reinit/换代一并自止） */
     private var speakGen = 0
 
+    /** 批⑨R3 首个 appContext（voices() 枚举设备引擎取应用名用） */
+    private var appCtx: Context? = null
+
     @Volatile
     var ready = false
         private set
@@ -88,6 +91,7 @@ object TtsEngineHolder {
     }
 
     private fun createEngine(appContext: Context, pkg: String?) {
+        if (appCtx == null) appCtx = appContext // voices() 枚举引擎 label 用（批⑨R3）
         if (pkg != null) triedPkgs.add(pkg)
         val gen = ++generation
         val tts = if (pkg != null) {
@@ -194,26 +198,69 @@ object TtsEngineHolder {
         cbs.forEach { it(false, msg) }
     }
 
-    /** 当前引擎 zh 音色列表（id=Voice.name，web 下拉直接展示；未就绪=空表） */
+    /** 批⑨R3 混合列表：设备全部引擎（id=eng:包名，名=引擎应用名）+ 当前引擎 zh 音色
+     *  （id=voice:Voice.name）。站主真机实录：兜底引擎 voices 空=下拉只剩「自动」且
+     *  系统设置换音色生效但 APP 内无法换——引擎级自选=APP 内直达（切引擎三参重建）。
+     *  web 下拉只吃 [{id,name}] 零改动；旧存量裸 voiceId 无前缀=不匹配回落「自动」✓ */
     fun voices(): List<Pair<String, String>> {
-        val eng = engine ?: return emptyList()
-        return runCatching {
-            eng.voices
-                ?.filter { it.locale?.language?.equals("zh", ignoreCase = true) == true }
-                ?.map { it.name to it.name }
-                ?.take(30) // 长列表防下拉爆炸（部分引擎暴露几十个）
-                ?: emptyList()
-        }.getOrDefault(emptyList())
+        val out = mutableListOf<Pair<String, String>>()
+        val ctx = appCtx
+        if (ctx != null) {
+            runCatching {
+                val pm = ctx.packageManager
+                val intent = Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE)
+                    .addCategory("android.intent.category.DEFAULT")
+                pm.queryIntentServices(intent, 0).mapNotNull { it.serviceInfo }.forEach { si ->
+                    val label = runCatching {
+                        pm.getApplicationLabel(si.applicationInfo).toString()
+                    }.getOrDefault(si.packageName)
+                    val mark = if (si.packageName == enginePkg) "（当前）" else ""
+                    out.add("eng:${si.packageName}" to "引擎·$label$mark")
+                }
+            }
+        }
+        val eng = engine
+        if (eng != null) {
+            runCatching {
+                eng.voices
+                    ?.filter { it.locale?.language?.equals("zh", ignoreCase = true) == true }
+                    ?.take(30) // 长列表防下拉爆炸（部分引擎暴露几十个）
+                    ?.forEach { v -> out.add("voice:${v.name}" to "音色·${v.name}") }
+            }
+        }
+        return out
     }
 
-    /** 设置音色（立即作用于后续 speak——TextToSpeech 公开方法是同步 IPC 且线程安全，
-     *  返回即生效，与后续 main 队列里的 speak 天然有序）。false=失效（web 提示重选回「自动」） */
+    /** 设置音色/引擎（立即作用于后续 speak）。eng:=换引擎重建（音色清空回「自动」）；
+     *  voice:=当前引擎内选音色。false=失效（web 提示重选回「自动」） */
     fun setVoice(voiceId: String): Boolean {
+        if (voiceId.startsWith("eng:")) {
+            val pkg = voiceId.removePrefix("eng:")
+            val ctx = appCtx ?: return false
+            if (pkg == enginePkg) return true // 幂等
+            reinitTo(ctx, pkg)
+            return true
+        }
+        val vName = voiceId.removePrefix("voice:")
         val eng = engine ?: return false
-        val v = runCatching { eng.voices }.getOrDefault(null)?.firstOrNull { it.name == voiceId } ?: return false
+        val v = runCatching { eng.voices }.getOrDefault(null)?.firstOrNull { it.name == vName } ?: return false
         val ok = runCatching { eng.setVoice(v) }.getOrDefault(TextToSpeech.ERROR) == TextToSpeech.SUCCESS
-        if (ok) currentVoiceId = voiceId
+        if (ok) currentVoiceId = vName
         return ok
+    }
+
+    /** 批⑨R3 显式换引擎（音色下拉 eng: 条目）：三参构造重建；音色选择清空（新引擎
+     *  音色集不同，回「自动」；会话中切换=Manager 的 speak !ok 重试自接重建间隙） */
+    private fun reinitTo(appContext: Context, pkg: String) {
+        main.post {
+            speakGen++
+            runCatching { engine?.shutdown() }
+            engine = null
+            ready = false
+            currentVoiceId = null
+            triedPkgs.clear()
+            createEngine(appContext, pkg)
+        }
     }
 
     /** 朗读一块（逐块协议/会话共用）。false=引擎未就绪（调用方按旧语义处理）。 */
@@ -250,6 +297,15 @@ object TtsEngineHolder {
                 }
             }
             main.postDelayed(poll, 1_500) // 首查延迟：入调合成间隙不误判
+            // 批⑨R3 第三保险（站主真机 2.0.5 实测双欠奉引擎实录：onDone 与 isSpeaking
+            // 全谎报——轮询等不到静默依旧重读循环）：按字数估算块时长到点强制补发 done。
+            // 中文合成 ≈3.2 字/秒×语速，1.5 系数防引擎偏慢截断；正常引擎上 onDone/轮询
+            // 先到、估算只是无害空炮（幂等核对）。真拖堂由看门狗 30s 接管重续。
+            val estMs = (text.length / (3.2f * rate.coerceAtLeast(0.5f)) * 1000f * 1.5f)
+                .toLong().coerceIn(2_000, 10 * 60_000L)
+            main.postDelayed({
+                if (gen == speakGen) utteranceListeners.forEach { it("done", id) }
+            }, estMs)
         }
         return true
     }
