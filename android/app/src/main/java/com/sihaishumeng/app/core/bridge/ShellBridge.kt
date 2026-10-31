@@ -1,27 +1,28 @@
 package com.sihaishumeng.app.core.bridge
 
+import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
 import android.webkit.JavascriptInterface
 import com.sihaishumeng.app.core.device.KeyboardInsetController
-import com.sihaishumeng.app.core.device.TtsController
+import com.sihaishumeng.app.core.tts.TtsEngineHolder
+import com.sihaishumeng.app.core.tts.TtsSessionManager
 
 /**
  * __wsShell JS 桥（M-APP15 版本桥起家；M247 音量键/M248 TTS/M249 键盘通道随批；
- * 批②自壳迁出）——**桥契约冻结**：8 个方法签名与行为逐字保留，web 层零改动同时
- * 适配轻壳与本原生工程（wordsea-app 路线定稿 2026-10-29）。批④W 新增第 9 方法
- * socialLogin（登录页网页化：四家按钮走桥拉 SDK）——增量不在冻结列，老壳 1.1.9
- * 无此方法，web 侧特征探测（typeof）回落网页 OAuth。
+ * 批②自壳迁出）——**桥契约冻结**：9 个方法签名与行为逐字保留（M248 三法批⑨ 起
+ * 转打进程级 TtsEngineHolder，签名/返回语义不变），web 层零改动同时适配轻壳与
+ * 本原生工程。批④W 第 9 方法 socialLogin（登录页网页化）；批⑨ 新增会话五法
+ * （ttsStartSession/ttsControl/ttsSessionState/ttsVoices/ttsSetVoice——听书会话
+ * 下沉原生前台服务+音色选择）——增量不在冻结列，web 特征探测（typeof）回落旧
+ * 逐块模式=双向部署安全。
  *
  * 只暴露只读版本号+声明性动作——授权大域页面（qq/alipay/bilibili/github）拿到的
- * 也只是数字与无副作用的开关（socialLogin 只对主 WebView 生效页面有意义：结果
- * 回呼注入本 WebView，三方页拿到也拿不到会话）。@JavascriptInterface 方法跑在
- * binder 线程。旧壳（1.1.4-）无此桥：web 侧回退 UA 尾标判定。
+ * 也只是数字与无副作用的开关。@JavascriptInterface 方法跑在 binder 线程。
  */
 class ShellBridge(
     private val activity: Activity,
-    private val tts: TtsController,
     private val keyboard: KeyboardInsetController,
     /** M247 接管态写回宿主 @Volatile 字段（渲染进程重建不丢态——宿主持有）。
      *  ⚠️ 勿改名回 setVolumePaging：与方法 fun setVolumePaging 同名时，Kotlin 调用点
@@ -57,23 +58,65 @@ class ShellBridge(
         onVolumePagingChange(enabled)
     }
 
-    /** M248 预热原生 TTS（web 阅读器挂载时调；引擎懒初始化零动作面——授权大域
-     *  页面最坏也只是提前拉起系统语音引擎，speak/ttsStop 仍只在自家阅读器语境）。 */
+    /** M248 预热原生 TTS（web 阅读器挂载时调；批⑨ 起引擎=TtsEngineHolder 进程单例——
+     *  懒初始化+多引擎挑选+失败如实上报；签名与返回语义逐字不变）。 */
     @JavascriptInterface
     fun ttsPrepare() {
-        activity.runOnUiThread { tts.ensureTts() }
+        activity.runOnUiThread { TtsEngineHolder.ensure(activity) { _, _ -> } }
     }
 
-    /** M248 朗读一块（web 侧 chunk，id=自铸 `c${n}`/`one${n}`）。返回 ttsReady：
+    /** M248 朗读一块（web 侧 chunk，id=自铸 `c${n}`/`one${n}`）。返回就绪态：
      *  false=引擎尚在初始化，web 侧置暂停态提示用户稍候点继续。 */
     @JavascriptInterface
-    fun ttsSpeak(id: String, text: String, rate: Float): Boolean = tts.speak(id, text, rate)
+    fun ttsSpeak(id: String, text: String, rate: Float): Boolean = TtsEngineHolder.speak(id, text, rate)
 
     /** M248 停读（web pause/stop 两义共用——pause 后 resume=当前块重读，由 web 记块位） */
     @JavascriptInterface
     fun ttsStop() {
-        tts.stop()
+        TtsEngineHolder.stop()
     }
+
+    // ══ 批⑨ 会话五法（听书会话下沉原生前台服务；web 特征探测在场才调用） ══
+
+    /** 起播会话：options={novelId,bookTitle,rate,sleepTimer,voiceId?,orderIndex,
+     *  paraIndex,ct,toc:[章序数组]}。false=参数坏/不可会话（web 回落逐块）。
+     *  首次起播顺带请求 POST_NOTIFICATIONS（33+；未授权 FGS 照跑、锁屏媒体卡
+     *  读 MediaSession 不依赖通知——请求只为通知栏可见，拒两次系统静默不再弹）。 */
+    @JavascriptInterface
+    fun ttsStartSession(optionsJson: String): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2481)
+        }
+        return TtsSessionManager.start(activity, optionsJson)
+    }
+
+    /** 会话控制：{"a":"pause|resume|stop|setRate|setSleep|next|prev","v":...}
+     *  （web 播放控件/通知栏/耳机线控统一汇流口——通知栏与耳机在 Service 侧直调）。 */
+    @JavascriptInterface
+    fun ttsControl(actionJson: String) {
+        TtsSessionManager.control(actionJson)
+    }
+
+    /** 会话快照（render 崩溃重建/跨页返回重同步用；无会话="null"） */
+    @JavascriptInterface
+    fun ttsSessionState(): String = TtsSessionManager.stateJson()
+
+    /** 当前引擎 zh 音色列表 JSON（[{"id","name"}]；引擎未就绪="[]"） */
+    @JavascriptInterface
+    fun ttsVoices(): String {
+        val arr = org.json.JSONArray()
+        TtsEngineHolder.voices().forEach { (id, name) ->
+            arr.put(org.json.JSONObject().put("id", id).put("name", name))
+        }
+        return arr.toString()
+    }
+
+    /** 设置音色（立即作用于后续朗读；false=失效，web 提示重选回「自动」） */
+    @JavascriptInterface
+    fun ttsSetVoice(voiceId: String): Boolean = TtsEngineHolder.setVoice(voiceId)
 
     /** M249 初始同步：页面加载时键盘已开的罕见态（SPA 恢复/换页）。物理 px；0=键盘关。
      *  只读无动作面（与 versionName 同口径，三方页拿到的只是数字）。 */

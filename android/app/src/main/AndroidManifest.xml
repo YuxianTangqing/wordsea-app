@@ -6,6 +6,13 @@
     <!-- 壳内自更新：下载 APK 后直接弹系统安装器（8.0+ 的「安装未知应用」
          按来源授权，系统安装流会自动引导到设置，无需代码侧运行时申请） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 批⑨ 听书前台服务（锁屏/后台连读）：FGS 基础权限（28+）+mediaPlayback 类型
+         （34+ 缺它 startForeground 直接 SecurityException）+WakeLock（块间合成间隙
+         保 CPU）+通知（33+ 运行时；未授权 FGS 照跑、锁屏媒体卡读 MediaSession 不依赖） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- 包可见性：外跳送系统浏览器（ACTION_VIEW https）需要；批③ 三家登录宿主 App
          可见性（微信 isWXAppInstalled 探测 / QQ 拉起与 WAP 兜底 / 支付宝预留） -->
@@ -106,6 +113,15 @@
                 <data android:scheme="sihaishumengalipay" />
             </intent-filter>
         </activity>
+
+        <!-- 批⑨ 听书前台服务：纯宿主（通知栏+MediaSession+音频焦点；状态机在
+             TtsSessionManager 进程单例）。⚠️ 不得加 android:process——跨进程会打断
+             cookie 桥、WebView 弱引用与进程单例（对抗审查 A6）。exported=false：通知
+             按钮走 PendingIntent.getForegroundService 不需要导出。 -->
+        <service
+            android:name=".core.tts.TtsPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- DownloadManager 落 app 私有外部目录的更新包，经 FileProvider
              授权给系统安装器读（external-files-path 只圈 Download/ 一处） -->

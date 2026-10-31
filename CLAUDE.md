@@ -64,6 +64,28 @@
   端点四态：401/他人行拒/幂等 already/单槽位换绑拒）；B站/GitHub（仅 link 态放行）
   走 `/link-social`→BiliAuthActivity 通用授权屏浮层。**web 侧绑定按钮带
   versionName>=2.0.2 硬门控**——老 APK 桥无视 mode 会照跑登录（切走会话风险）。
+- 批⑨ 2.0.3 听书原生化：朗读会话下沉**原生前台服务**（`core/tts/` 四件套）——
+  TtsEngineHolder（进程级引擎：修「引擎启动中死循环」三坑=初始化失败如实上报/
+  onError 双参覆写/setLanguage 返回值必检+多引擎挑选 fallback+音色枚举设置）、
+  TtsSessionManager（会话状态机：拉章消费服务端 `data.tts` 纯文本、splitChunks
+  逐字复刻、按 toc 数组位置连读、15s 进度心跳〔会话期间 web Tracker 静默=唯一
+  写者〕、token 临期 rotate、预取下一章、30s 看门狗）、TtsPlaybackService（纯宿主：
+  MediaStyle 通知三键+平台 MediaSession 耳机线控+音频焦点宁停勿抢+WakeLock；⭐
+  onStartCommand 首行 startForeground 防超时崩、**必须手势窗内拉起**——Android 12+
+  后台 startForegroundService 抛异常，故 TtsSessionManager.start 里引擎 ensure 之前
+  先拉服务）、WebChannel（WebView 弱引用注 JS 唯一出口——Activity 销毁/render 重建
+  后事件不炸）。桥增**会话五法** ttsStartSession/ttsControl/ttsSessionState/
+  ttsVoices/ttsSetVoice（web 特征探测在场才走会话，老 web×新 APK=dormant、
+  新 web×旧 APK=回落逐块=双向部署安全）；M248 旧三法逐字保留改打 Holder
+  （TtsController 退役删除；逐块事件回投 __wsTtsEvent 由 MainActivity 注册的
+  适配器接管——仅 c/one 前缀 id，stop kind 吞掉与旧协议逐字一致）。Manifest 增
+  FGS 四权限（34+ 缺 FOREGROUND_SERVICE_MEDIA_PLAYBACK=startForeground 直接
+  SecurityException）+service 声明（**严禁 android:process**——跨进程打断 cookie
+  桥/WebView 弱引用/进程单例）。状态机与控制全部进程单例直调——零 Service Intent
+  通信（后台 startService 崩溃面根除）；通知按钮走 PendingIntent.getForegroundService
+  豁免路径。⭐Kotlin 坑：`TextToSpeech.ENGINE_INTENT_ACTION` 在 Kotlin 不可直引
+  （Java 实现类继承接口常量的 trick，Kotlin 不继承）——须
+  `TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE`。
 
 ## 铁律
 

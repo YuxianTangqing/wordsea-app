@@ -19,6 +19,8 @@ import java.util.concurrent.TimeUnit
  * 固定头（对齐站点防线）：Origin=站址（better-auth trustedOrigins 放行；无 cookie
  * 请求本可省略，带上为续用会话的请求铺路）+ Referer=站址（M260 文章接口同站闸同款）。
  * 回调统一主线程。
+ *
+ * 批⑨ 增 getJson/putJson（听书会话拉章/进度心跳/rotate 续期）。
  */
 object ApiClient {
 
@@ -30,18 +32,32 @@ object ApiClient {
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
+    /** GET {SITE_URL}{path}（path 已含 query）；cb(code, body) 永远主线程，失败 body=null。 */
+    fun getJson(path: String, cb: (Int, JSONObject?) -> Unit) =
+        exec("GET", path, null, cb)
+
     /** POST {SITE_URL}{path}，JSON body；cb(code, body) 永远主线程，网络/解析失败 body=null。 */
-    fun postJson(path: String, body: JSONObject, cb: (Int, JSONObject?) -> Unit) {
-        val req = okhttp3.Request.Builder()
+    fun postJson(path: String, body: JSONObject, cb: (Int, JSONObject?) -> Unit) =
+        exec("POST", path, body, cb)
+
+    /** PUT {SITE_URL}{path}，JSON body（批⑨ 进度心跳）。 */
+    fun putJson(path: String, body: JSONObject, cb: (Int, JSONObject?) -> Unit) =
+        exec("PUT", path, body, cb)
+
+    private fun exec(method: String, path: String, body: JSONObject?, cb: (Int, JSONObject?) -> Unit) {
+        val builder = okhttp3.Request.Builder()
             .url(SiteConfig.SITE_URL + path)
             .header("Origin", SiteConfig.SITE_URL)
             .header("Referer", SiteConfig.SITE_URL + "/")
-            .post(
-                body.toString()
-                    .toRequestBody("application/json; charset=utf-8".toMediaType())
+        when {
+            method == "GET" -> builder.get()
+            body != null -> builder.method(
+                method,
+                body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
             )
-            .build()
-        client.newCall(req).enqueue(object : okhttp3.Callback {
+            else -> builder.method(method, ByteArray(0).toRequestBody(null))
+        }
+        client.newCall(builder.build()).enqueue(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
                 main.post { cb(-1, null) }
             }

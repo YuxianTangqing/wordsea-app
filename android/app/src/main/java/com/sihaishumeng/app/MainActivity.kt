@@ -32,7 +32,8 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.sihaishumeng.app.core.SiteConfig
 import com.sihaishumeng.app.core.bridge.ShellBridge
 import com.sihaishumeng.app.core.device.KeyboardInsetController
-import com.sihaishumeng.app.core.device.TtsController
+import com.sihaishumeng.app.core.tts.TtsEngineHolder
+import com.sihaishumeng.app.core.tts.WebChannel
 import com.sihaishumeng.app.core.update.SelfUpdateController
 import com.sihaishumeng.app.core.web.WebViewRouter
 import com.sihaishumeng.app.social.SocialAuthController
@@ -77,7 +78,6 @@ class MainActivity : AppCompatActivity() {
     private var volumePaging = false
 
     private lateinit var router: WebViewRouter
-    private lateinit var ttsController: TtsController
     private lateinit var keyboardInset: KeyboardInsetController
     private lateinit var selfUpdate: SelfUpdateController
     /** 批④W 桥面社交登录编排（网页登录页四家按钮 → SDK → app-social 端点 → 回呼网页） */
@@ -134,7 +134,17 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         router = WebViewRouter(this)
-        ttsController = TtsController(this) { js -> evalJs(js) }
+        // 批⑨ 逐块旧协议适配（进程级一次）：web 侧自铸 id（c${n}/one${n} 前缀）的
+        // done/error 回投 __wsTtsEvent——与旧 TtsController 注入串逐字一致（契约冻结）；
+        // stop 事件吞掉（旧协议无此 kind）；会话内部 id（s 前缀）不走此口（事件走
+        // __wsTtsSession）。render 崩溃重建后经 WebChannel 弱引用仍可达。
+        TtsEngineHolder.addUtteranceListener { kind, id ->
+            if ((kind == "done" || kind == "error") &&
+                (id.startsWith("c") || id.startsWith("one"))
+            ) {
+                WebChannel.callGuarded("__wsTtsEvent", "'$kind','$id'")
+            }
+        }
         keyboardInset = KeyboardInsetController(
             webProvider = { if (this::webView.isInitialized) webView else null },
             evalJs = { js -> evalJs(js) },
@@ -246,13 +256,15 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(
             ShellBridge(
                 this,
-                ttsController,
                 keyboardInset,
                 { enabled -> volumePaging = enabled },
                 ::handleSocialLogin,
             ),
             "__wsShell",
         )
+        // 批⑨ 进程级 WebView 通道换绑（TTS 会话事件/逐块回投的唯一注 JS 出口；
+        // render 崩溃重建走同一装配口自动恢复）
+        WebChannel.bind(webView)
         // 精确移除旧实例（onRenderProcessGone 重建路径）——绝不用 removeAllViews：
         // 那会误删 SwipeRefreshLayout 自管理的 circleView 指示器，且库的 mTarget 是
         // 「首次发现即冻结」，整批换子后新 WebView 将无人测量（0×0 白屏根因）。
@@ -422,7 +434,9 @@ class MainActivity : AppCompatActivity() {
         fileChooserCallback?.onReceiveValue(null)
         fileChooserCallback = null
         selfUpdate.destroy()
-        ttsController.shutdown()
+        // 批⑨：TTS 引擎不再随 Activity 关停（TtsEngineHolder=进程级）——听书会话在
+        // 前台服务里读，用户退出 Activity 进程存活时朗读继续（引擎经 applicationContext
+        // 创建本就与 Activity 无绑定）
         webView.destroy()
         super.onDestroy()
     }

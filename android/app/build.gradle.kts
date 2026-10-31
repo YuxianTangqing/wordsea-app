@@ -33,8 +33,13 @@ android {
         // 批⑥ 2.0.2 (17)：APP 内第三方绑定原生化——socialLogin 桥增 mode='link'
         //   （微信/QQ/支付宝 SDK 上送 /app-social/link 会话内关联；B站/GitHub 走
         //   /link-social 浮层授权屏）；web 侧绑定按钮 versionName>=2.0.2 门控。
-        versionCode = 17
-        versionName = "2.0.2"
+        // 批⑨ 2.0.3 (18)：听书原生化——朗读会话下沉原生前台服务 TtsPlaybackService
+        //   （锁屏/后台连读+通知栏三键+耳机线控+定时真可用+进度心跳+token rotate）；
+        //   桥增会话五法 ttsStartSession/ttsControl/ttsSessionState/ttsVoices/ttsSetVoice
+        //   （音色选择）；TtsController 退役→进程级 TtsEngineHolder（修「引擎启动中
+        //   死循环」三坑+多引擎挑选）。批⑧ B站 SDK 若后落地顺延 19/2.0.4。
+        versionCode = 18
+        versionName = "2.0.3"
     }
 
     signingConfigs {
