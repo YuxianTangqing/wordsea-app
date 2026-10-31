@@ -37,6 +37,9 @@ object TtsEngineHolder {
      *  onInit 直接作废（多引擎兜底链上旧引擎的 ERROR 回调曾可把刚建的新引擎误杀） */
     private var generation = 0
 
+    /** 批⑨R2 朗读块代际：新 speak 顶掉旧块的完成探测轮询（stop/reinit/换代一并自止） */
+    private var speakGen = 0
+
     @Volatile
     var ready = false
         private set
@@ -75,6 +78,7 @@ object TtsEngineHolder {
     fun reinit(context: Context) {
         val pkg = enginePkg
         main.post {
+            speakGen++ // 重建期旧轮询作废
             runCatching { engine?.shutdown() }
             engine = null
             ready = false
@@ -151,6 +155,7 @@ object TtsEngineHolder {
      *  失败时读系统默认引擎包名记入 triedPkgs——否则 candidates.first() 可能仍是它白白
      *  烧一轮重试。报错文案带失败码与已试清单（真机定位器）。 */
     private fun fallbackOrReport(appContext: Context, failedPkg: String?, reason: String) {
+        speakGen++ // 旧引擎的完成探测轮询作废
         runCatching { engine?.shutdown() }
         engine = null
         ready = false
@@ -214,21 +219,52 @@ object TtsEngineHolder {
     /** 朗读一块（逐块协议/会话共用）。false=引擎未就绪（调用方按旧语义处理）。 */
     fun speak(id: String, text: String, rate: Float): Boolean {
         if (!ready) return false
+        val gen = ++speakGen
         main.post {
             val eng = engine ?: return@post
             eng.setSpeechRate(rate)
             eng.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)
+            // 批⑨R2 完成探测双保险：部分引擎（站主真机兜底引擎实录）onDone 欠奉——
+            // 推进死=看门狗 30s 重读循环「不断重复一段」。speak 后轮询 isSpeaking，
+            // 连续两轮静默=补发 done（消费方按 utteranceId 核对，与真 onDone 幂等；
+            // 新块 speak 顶代（speakGen）自止；15min 帽防泄漏——真僵死由看门狗接管）
+            var silent = 0
+            val start = android.os.SystemClock.elapsedRealtime()
+            val poll = object : Runnable {
+                override fun run() {
+                    if (gen != speakGen) return
+                    val e = engine ?: return
+                    val speaking = runCatching { e.isSpeaking }.getOrDefault(true)
+                    if (!speaking) {
+                        silent++
+                        if (silent >= 2) {
+                            utteranceListeners.forEach { it("done", id) }
+                            return
+                        }
+                    } else {
+                        silent = 0
+                    }
+                    if (android.os.SystemClock.elapsedRealtime() - start < 15 * 60_000L) {
+                        main.postDelayed(this, 600)
+                    }
+                }
+            }
+            main.postDelayed(poll, 1_500) // 首查延迟：入调合成间隙不误判
         }
         return true
     }
 
     fun stop() {
-        main.post { runCatching { engine?.stop() } }
+        main.post {
+            speakGen++
+            runCatching { engine?.stop() }
+        }
     }
 
     /** 进程级关停（实际无人调——Activity 销毁不杀引擎：会话期间进程存活） */
     fun shutdown() {
         main.post {
+            speakGen++
             runCatching { engine?.shutdown() }
             engine = null
             ready = false

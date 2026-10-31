@@ -41,9 +41,13 @@ android {
         // 批⑨R 2.0.4 (19)：TTS 引擎兜底真修——Manifest queries 补 TTS_SERVICE（30+
         //   枚举他引擎需要；缺声明=多引擎兜底链空转只剩默认引擎一发）+ 代际令牌防
         //   迟到 onInit 误杀新引擎 + 默认引擎失败记入已试集（不烧冤枉轮）+ 报错文案
-        //   带失败码/备选数/已试清单（真机定位器）。批⑧ B站 SDK 若后落地顺延 20/2.0.5。
-        versionCode = 19
-        versionName = "2.0.4"
+        //   带失败码/备选数/已试清单（真机定位器）。
+        // 批⑨R2 2.0.5 (20)：朗读推进双保险——部分引擎 onDone 欠奉（站主真机兜底引
+        //   擎实录「不断重复一段」=推进死+看门狗 30s 重读循环）；speak 后轮询
+        //   isSpeaking 连续两轮静默补发 done（消费方按 utteranceId 幂等），speakGen
+        //   代际顶掉（stop/reinit/换引擎自止）。
+        versionCode = 20
+        versionName = "2.0.5"
     }
 
     signingConfigs {
