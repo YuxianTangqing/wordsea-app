@@ -29,6 +29,8 @@ class FlipInterceptorLayout(
     private var downX = 0f
     private var downY = 0f
     private var gaveUp = false
+    /** 批⑩R5：DOWN 落点在角部捏起热区（轻拖任意方向 6px 即锁） */
+    private var cornerHot = false
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
         // 批⑩R 手势链总防护：任何 FlipController/拍照异常绝不崩 APP（吞掉+日志——
@@ -50,6 +52,8 @@ class FlipInterceptorLayout(
                 activePointerId = ev.getPointerId(0)
                 downX = ev.x
                 downY = ev.y
+                // 批⑩R5 角部捏起：落点在角热区=记标记（MOVE 段降阈锁）
+                cornerHot = controller.inCornerHot(ev.x, ev.y)
                 // 投机拍照（enabled&&ready 才发起；手势未成立即弃）
                 if (controller.interceptAllowed()) controller.onGestureDown()
             }
@@ -59,6 +63,18 @@ class FlipInterceptorLayout(
                 if (idx < 0) return false
                 val dx = ev.getX(idx) - downX
                 val dy = ev.getY(idx) - downY
+                // 批⑩R5：角热区=任意方向 6px 即锁（捏页角）；常规=横向主导超 slop
+                if (cornerHot) {
+                    if (Math.hypot(dx.toDouble(), dy.toDouble()).toFloat() > 6f) {
+                        tracking = true
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        // 角位定方向（起点语义：捏右角=翻下一页/左角=上一页，拖向不反转）
+                        controller.setCornerHint(cornerHot, downY)
+                        controller.onGestureLock(if (downX > width / 2f) 1 else -1, downX)
+                        return true
+                    }
+                    return false
+                }
                 if (Math.abs(dx) > touchSlop && Math.abs(dx) * 1.2f >= Math.abs(dy)) {
                     tracking = true
                     parent?.requestDisallowInterceptTouchEvent(true)
@@ -91,7 +107,7 @@ class FlipInterceptorLayout(
         when (ev.actionMasked) {
             MotionEvent.ACTION_MOVE -> {
                 val idx = ev.findPointerIndex(activePointerId)
-                if (idx >= 0) controller.onGestureMove(ev.getX(idx))
+                if (idx >= 0) controller.onGestureMove(ev.getX(idx), ev.getY(idx))
             }
             MotionEvent.ACTION_UP -> {
                 tracking = false

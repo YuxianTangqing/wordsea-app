@@ -1,5 +1,6 @@
 package com.sihaishumeng.app.core.flip
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
@@ -87,11 +88,14 @@ class FlipController(
         val dir: Int,
         val seq: Int,
         var cross: Boolean,
+        /** 批⑩R5：角捏起手（θ 用综合行程 hypot(dx,dy)——竖向拖也有进度感） */
+        val corner: Boolean = false,
     ) {
         var phase = Phase.DRAG
         var theta = 0f
         var settled = false
         var downX = 0f
+        var downY = 0f
         val samples = ArrayList<FlipDynamics.Sample>(16)
         var animFrom = 0f
         var animV0 = 0f
@@ -166,6 +170,19 @@ class FlipController(
         }
     }
 
+    /** 批⑩R5 角部捏起热区（起点/番茄式：按住左/右下角轻拖即起卷）：落点在纸页
+     *  角部 22%×22% 区域=true——拦截器对角热区降锁阈值（6px 任意方向即锁） */
+    fun inCornerHot(x: Float, y: Float): Boolean {
+        val d = decl ?: return false
+        if (!d.enabled) return false
+        val r = physRect(d)
+        val cw = r.width() * 0.22f
+        val ch = r.height() * 0.22f
+        val inX = x < r.left + cw || x > r.right - cw
+        val inY = y > r.bottom - ch * 2f || y < r.top + ch * 2f // 上下角都收（站主点名左上/右上）
+        return inX && inY
+    }
+
     /** 拦截器查询：声明 enabled&&ready 且无在途会话（动画期不拦——M295 惰性接管的
      *  v1 简化：动画 ~300ms 内新手势不响应拖拽，点区快进走 web→requestPageFlip 链） */
     fun interceptAllowed(): Boolean {
@@ -179,6 +196,15 @@ class FlipController(
         startCapture()
     }
 
+    /** 批⑩R5：角捏起手标记+DOWN 纵坐标（拦截器在 lock 前传入；move 的综合行程用） */
+    fun setCornerHint(corner: Boolean, downY: Float) {
+        cornerGesture = corner
+        downYLast = downY
+    }
+    @Volatile private var cornerGesture = false
+    @Volatile private var downYLast = 0f
+    @Volatile private var lastMoveY = 0f
+
     fun onGestureLock(dir: Int, x: Float) {
         val d = decl ?: return
         if (!d.enabled || !d.ready) return
@@ -189,8 +215,9 @@ class FlipController(
             dir == -1 && d.first -> if (d.edgePrev) GMode.EDGE else return
             else -> GMode.PAGE
         }
-        val s = Session(mode, dir, ++sessionSeq, cross = false)
+        val s = Session(mode, dir, ++sessionSeq, cross = false, corner = cornerGesture)
         s.downX = x
+        s.downY = downYLast
         session = s
         // 批⑩R4：预拍代际命中=零延迟直起（起手即跟手）；miss=即时亮相（纸底色）
         // +后台拍（到位换真图，绝不显示过期页帧）
@@ -202,7 +229,8 @@ class FlipController(
         }
     }
 
-    fun onGestureMove(x: Float) {
+    fun onGestureMove(x: Float, y: Float) {
+        lastMoveY = y
         val s = session ?: return
         if (s.phase != Phase.DRAG) return
         val d = decl ?: return
@@ -210,8 +238,16 @@ class FlipController(
         s.samples.add(FlipDynamics.Sample(now(), x))
         if (s.samples.size > 16) s.samples.removeAt(0)
         s.theta = if (s.mode == GMode.PAGE) {
-            // 批⑩R4：满值拖距收窄 0.62W（起点/番茄手感——拖整页宽太累）
-            FlipDynamics.clampTheta(abs(x - s.downX) / (w * 0.62f) * FlipDynamics.THETA_CEIL)
+            // 批⑩R4：满值拖距收窄 0.62W；⭐批⑩R5：拖动态封顶 150°（离屏段只留
+            // 松手动画——快滑 θ 冲 165+ 时盖层几乎全程透明=底下新页裸露=「按住没
+            // 松就是下一页/动画看不到」真凶：R4 的 0.62W+离屏过渡叠加的过度修正）；
+            // 角捏起手=综合行程 hypot(dx,dy)（竖向拖也有进度感）
+            val travel = if (s.corner) {
+                hypot((x - s.downX).toDouble(), (lastMoveY - s.downY).toDouble()).toFloat()
+            } else {
+                abs(x - s.downX)
+            }
+            (travel / (w * 0.62f) * FlipDynamics.THETA_CEIL).coerceIn(0f, 150f)
         } else {
             FlipDynamics.softEdgeTheta(abs(x - s.downX) / (w * FlipDynamics.SOFT_EDGE_FULL_W))
         }
