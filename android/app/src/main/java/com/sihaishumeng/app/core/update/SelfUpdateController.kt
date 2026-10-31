@@ -23,7 +23,8 @@ import java.io.File
 /**
  * 壳内自更新链（M-APP15；批②自壳迁出）：本站 APK 下载 → 完成自动弹系统安装器。
  *
- * DownloadListener 精确圈定更新包：host∈本站 + `sihaishumeng-app.apk` 文件名——
+ * DownloadListener 圈定更新包：host∈本站 + 本站 APK 文件名族（稳定名
+ * `sihaishumeng-app.apk` 与批⑨R 起的版本名直链 `sihaishumeng-app-v*.apk`）——
  * URL `?v=` ≤ 本机 versionName 时 Toast「已是最新版本」不下载；否则 DownloadManager
  * 下到 app 私有外部目录 `files/Download/`，完成广播（必须 RECEIVER_EXPORTED）后
  * 自动弹系统安装器；后台完成由 onResume 补弹（宿主在 onResume 调 [tryStartInstall]）。
@@ -46,9 +47,15 @@ class SelfUpdateController(
     fun createDownloadListener(): DownloadListener =
         DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             val uri = Uri.parse(url)
-            // 精确圈定更新包：本站域＋固定文件名（防误伤站内其它 attachment 下载）
+            // 圈定更新包：本站域＋本站 APK 文件名（防误伤站内其它 attachment 下载）。
+            // ⭐批⑨R6：批⑨R 把 apkPath 改版本名直链（sihaishumeng-app-v2.0.8.apk）后
+            // 原精确等（==稳定槽固定名）断链=站主 2.0.7→2.0.8 真机实录「下载了不自动
+            // 弹安装器」——下载被当普通附件走公共目录+不注册完成广播。放宽为前缀族匹配：
+            // 稳定名 sihaishumeng-app.apk 与版本名直链 sihaishumeng-app-v*.apk 双吃
+            val seg = uri.lastPathSegment ?: ""
             val isUpdateApk = uri.host?.lowercase() in SiteConfig.SITE_HOSTS &&
-                uri.lastPathSegment == "sihaishumeng-app.apk"
+                (seg == "sihaishumeng-app.apk" ||
+                    (seg.startsWith("sihaishumeng-app-v") && seg.endsWith(".apk")))
             if (isUpdateApk) {
                 if (pendingDownloadId != -1L) { // 重复点击去重
                     Toast.makeText(activity, R.string.download_in_progress, Toast.LENGTH_SHORT).show()

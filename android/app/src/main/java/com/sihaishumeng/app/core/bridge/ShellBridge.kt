@@ -125,27 +125,33 @@ class ShellBridge(
     @JavascriptInterface
     fun ttsSetVoice(voiceId: String): Boolean = TtsEngineHolder.setVoice(voiceId)
 
-    /** 批⑨R5：跳系统「文字转语音输出」设置页（引擎与厂商专有发音人的官方管理口——
-     *  站主 2.0.7 实录引擎 voices name 恒 "zh"=发音人列表不经标准 API 暴露）。置位
-     *  回程标记（MainActivity.onResume 消费：idle 态重 init 即时生效）。旧 web 特征
-     *  探测（typeof）自动隐藏入口。binder 线程只做 resolve 探测，start 走主线程。
-     *  ⭐「android.settings.TTS_SETTINGS」是 Settings 隐藏声明（公开 SDK 无常量——
-     *  javap 实证只有 ACTION_VOICE_INPUT_SETTINGS；AOSP 与主流厂商 ROM 均注册该
-     *  action）——raw action 串不受隐藏 API 限制；个别 ROM 未注册则回落设置首页。 */
+    /** 批⑨R5/R6：直达系统语音设置的发音人管理（引擎与厂商专有发音人的官方管理口——
+     *  站主 2.0.8 实录引擎 voices name 恒 "zh"=发音人列表不经标准 API 暴露，APP 内
+     *  列出不可能；本入口=最短路径）。置位回程标记（MainActivity.onResume 消费：
+     *  idle 态重 init 即时生效）。旧 web 特征探测（typeof）自动隐藏入口。binder 线程
+     *  只做 resolve 探测，start 走主线程。
+     *  ⭐R6 三级直达链（站主 ROM 实测 TTS_SETTINGS 未注册=点了跳设置主页）：①
+     *  「android.settings.TTS_SETTINGS」隐藏声明 raw 串（公开 SDK 无常量，javap
+     *  实证；AOSP/部分 ROM 注册——注册了=直达「文字转语音输出」页）②
+     *  ACTION_INPUT_METHOD_SETTINGS（公开常量「语言和输入法」——「文字转语音
+     *  输出」在其内一步）③设置主页兜底。注：引擎自带设置页无公开契约（javap 实证
+     *  TextToSpeech.Engine 无 CONFIGURE 类 action、ServiceInfo 无 settings 字段）。 */
     @JavascriptInterface
     fun ttsOpenVoiceSettings(): Boolean {
         val ctx = activity.applicationContext
+        val pm = ctx.packageManager
         val candidates = listOf(
             Intent("android.settings.TTS_SETTINGS"),
+            Intent(Settings.ACTION_INPUT_METHOD_SETTINGS),
             Intent(Settings.ACTION_SETTINGS)
         )
         val chosen = candidates.firstOrNull {
-            runCatching {
-                ctx.packageManager.resolveActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), 0)
-            }.getOrNull() != null
+            runCatching { pm.resolveActivity(it, 0) }.getOrNull() != null
         } ?: return false
         TtsEngineHolder.markVoiceSettingsJump()
-        activity.runOnUiThread { runCatching { ctx.startActivity(chosen) } }
+        activity.runOnUiThread {
+            runCatching { ctx.startActivity(chosen.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }
         return true
     }
 

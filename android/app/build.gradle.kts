@@ -61,10 +61,19 @@ android {
         //   撞同 id，setVoice firstOrNull 恒命中第一条）；②name 形似语言码时标签用
         //   locale 中文显示名（「音色·中文（中国大陆）」）；③桥增 ttsOpenVoiceSettings
         //   一键直达系统语音设置页（厂商专有发音人不经 getVoices() 暴露的唯一正路）+
-        //   回程 idle 态自动重 init 生效。批⑧ SDK 顺延 24/2.0.9（等B站工单批 union_id
-        //   权限）。
-        versionCode = 23
-        versionName = "2.0.8"
+        //   回程 idle 态自动重 init 生效。
+        // 批⑨R6 2.0.9 (24)：⭐自更新链断链修——批⑨R 改版本名直链后 SelfUpdateController
+        //   的更新包圈定（URL 文件名==稳定槽固定名）失配=站主 2.0.7→2.0.8 真机实录
+        //   「APP 内下载了新包但安装器不自动弹」（下载被当普通附件走公共目录+完成广播
+        //   不注册）；放宽为文件名族匹配（稳定名+sihaishumeng-app-v*.apk 双吃）。
+        //   +ttsOpenVoiceSettings 三级直达链（站主 ROM 实测 TTS_SETTINGS 未注册=点了
+        //   跳设置主页：引擎 settingsActivity〔ServiceInfo 公开字段，「发音人下载」最
+        //   可能就是它〕→TTS_SETTINGS raw→ACTION_LANGUAGE_INPUT_SETTINGS〔离目标一
+        //   步〕→主页兜底）。站主设备单引擎（「语音设置」）+发音人不走 getVoices()=
+        //   APP 内列出不可能（平台限制），直达链+回程自动生效=最优解。批⑧ SDK 顺延
+        //   25/2.0.10（等B站工单批 union_id 权限）。
+        versionCode = 24
+        versionName = "2.0.9"
     }
 
     signingConfigs {
