@@ -99,8 +99,15 @@ android {
         //   全链 runCatching+Log.e（任何未预见异常不回抛 JS/不崩主线程）；②PixelCopy
         //   失败/超时→软件绘制回退（rootView.draw——站主 ROM PixelCopy 兼容面，慢
         //   50-150ms 保功能）；③拦截层手势链总防护。
-        versionCode = 28
-        versionName = "2.0.13"
+        // 批⑩R4 2.0.14 (29)：效果打磨四件（站主「一闪就过去+粗糙+文字突然放大」）——
+        //   ①预拍缓存（settle 后 300ms 后台备下一手起手帧+pageGen 代际守卫）+即时亮相
+        //   （位图未到先亮纸底色跟手）=治「按住死一下再跳」；②终态离屏过渡（θ150→170
+        //   整纸滑出，治 25% 残贴跳变闪屏）；③⭐弃 PixelCopy 全软件绘制（站主 ROM
+        //   PixelCopy SUCCESS 但帧错位=裁剪拉伸「文字突然放大」实锤；软件 draw 所见
+        //   即所得）+physRect 改 web 声明 dpr 权威换算；④手感：满值拖距 0.62W+松手
+        //   补间 1.5 系数+条带 24+暗峰 sin² 缓入+卷筒 0.15W。
+        versionCode = 29
+        versionName = "2.0.14"
     }
 
     signingConfigs {

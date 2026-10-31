@@ -53,6 +53,9 @@ class FlipController(
         val bg: Int,
         val dark: Boolean,
         val eink: Boolean,
+        /** web 声明的 devicePixelRatio（CSS px→物理 px 的权威换算——批⑩R4 弃
+         *  native scale×density 猜测：webView.scale 语义在缩放/宽视口下有出入） */
+        val dpr: Float,
     )
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -67,8 +70,10 @@ class FlipController(
     private var windowH = 0
     private var captureToken = 0
     private var captureDeadline: Runnable? = null
-    /** 最近一次成功拍照的 uptime——lock 时判「位图新鲜」（600ms 内=本手势 DOWN 投拍的帧） */
-    private var captureFreshAt = 0L
+    /** 页代际：每次会话了结/声明 ready 翻转递增——预拍位图的有效域（当前页没变=恒有效） */
+    private var pageGen = 0L
+    /** 预拍位图的代际（==pageGen=预拍仍对应当前页，lock 直接用零延迟） */
+    private var preheatGen = -1L
 
     // ── 会话 ──
     private var session: Session? = null
@@ -124,6 +129,7 @@ class FlipController(
                 bg = try { Color.parseColor(o.optString("bg", "#F5F0E6")) } catch (_: Exception) { 0xFFF5F0E6.toInt() },
                 dark = o.optBoolean("dark", false),
                 eink = o.optBoolean("eink", false),
+                dpr = o.optDouble("density", 1.0).toFloat().coerceIn(0.1f, 6f),
             )
         } catch (_: Exception) {
             null
@@ -142,6 +148,21 @@ class FlipController(
         val s = session
         if (s != null && s.phase == Phase.HOLD && !wasReady && d.ready) {
             finishSession(s, notifyDone = true)
+        }
+        // ⭐批⑩R4 预拍：新页就绪（首测/重测完成）后台备好下一手势的起手帧——
+        // ROM PixelCopy 慢/失败走软件回退 50-350ms，起手现拍=「按住死一下再跳」
+        // （站主「一闪就过去」主因）；预拍让手势起手零延迟真跟手。
+        if (d.ready) schedulePreheat()
+    }
+
+    /** 预拍（300ms 让位渲染稳定；同代重复调度幂等——removeCallbacks 后重挂） */
+    private fun schedulePreheat() {
+        mainHandler.removeCallbacks(preheatRun)
+        mainHandler.postDelayed(preheatRun, 300L)
+    }
+    private val preheatRun = Runnable {
+        if (session == null && decl?.enabled == true && decl?.ready == true) {
+            startCapture()
         }
     }
 
@@ -171,11 +192,12 @@ class FlipController(
         val s = Session(mode, dir, ++sessionSeq, cross = false)
         s.downX = x
         session = s
-        val fresh = pageBmp != null && now() - captureFreshAt < 600f
+        // 批⑩R4：预拍代际命中=零延迟直起（起手即跟手）；miss=即时亮相（纸底色）
+        // +后台拍（到位换真图，绝不显示过期页帧）
+        val fresh = pageBmp != null && preheatGen == pageGen
         if (fresh) startVisual(s) else {
-            // DOWN 投拍未归/失败/过期：等在途回调（onCaptureReady 起 startVisual），
-            // 无在途则补拍——绝不用旧会话位图（会显示过期页帧）
             s.pendingBitmap = true
+            startVisualPlaceholder(s)
             if (captureToken <= 0) startCapture() // ≤0=无在途（0=从未拍/-1=已收束）
         }
     }
@@ -188,7 +210,8 @@ class FlipController(
         s.samples.add(FlipDynamics.Sample(now(), x))
         if (s.samples.size > 16) s.samples.removeAt(0)
         s.theta = if (s.mode == GMode.PAGE) {
-            FlipDynamics.clampTheta(abs(x - s.downX) / w * FlipDynamics.THETA_CEIL)
+            // 批⑩R4：满值拖距收窄 0.62W（起点/番茄手感——拖整页宽太累）
+            FlipDynamics.clampTheta(abs(x - s.downX) / (w * 0.62f) * FlipDynamics.THETA_CEIL)
         } else {
             FlipDynamics.softEdgeTheta(abs(x - s.downX) / (w * FlipDynamics.SOFT_EDGE_FULL_W))
         }
@@ -280,8 +303,9 @@ class FlipController(
      *  view 原点；CurlPageView.configure 再换算自身本地坐标） */
     private fun physRect(d: Decl): RectF {
         val wv = webViewProvider() ?: return RectF(d.cssRect)
-        val density = activity.resources.displayMetrics.density
-        val scale = wv.scale * density
+        // 批⑩R4：换算权威化——web 声明的 devicePixelRatio（浏览器自证 CSS→物理），
+        // 不再用 native wv.scale×density（缩放/宽视口语义有出入）
+        val scale = d.dpr
         val rect = RectF(
             d.cssRect.left * scale, d.cssRect.top * scale,
             d.cssRect.right * scale, d.cssRect.bottom * scale,
@@ -290,6 +314,23 @@ class FlipController(
         wv.getLocationInWindow(loc)
         rect.offset(loc[0].toFloat(), loc[1].toFloat())
         return rect
+    }
+
+    /** 即时亮相：位图未就绪时先亮纸底色（θ 阴影在；位图到了 startVisual 换真图）——
+     *  消灭「按住死一下」的空窗（站主「一闪就过去」主因之二） */
+    private fun startVisualPlaceholder(s: Session) {
+        val d = decl ?: return
+        val view = viewProvider() ?: return
+        view.configure(physRect(d), d.bg, d.dark, d.eink)
+        view.setBitmap(null)
+        if (!s.settled) {
+            s.settled = true
+            emit("settle", s.dir, s.seq)
+        }
+        view.show(
+            if (s.mode == GMode.PAGE) CurlPageView.Mode.DRAG_PAGE else CurlPageView.Mode.DRAG_EDGE,
+            s.dir,
+        )
     }
 
     private fun startVisual(s: Session) {
@@ -405,6 +446,9 @@ class FlipController(
         if (session === s) session = null
         if (notifyDone) emit("done", 0, s.seq, withDir = false)
         hideLayer()
+        // 批⑩R4：翻页了结=页已变，旧预拍作废；新页渲染稳定后后台备下一张
+        pageGen++
+        schedulePreheat()
     }
 
     private fun hideLayer() {
@@ -431,54 +475,22 @@ class FlipController(
     }
 
     private fun startCapture() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return softwareCapture()
-        val wv = webViewProvider() ?: return
-        val root = wv.rootView
-        val w = root.width
-        val h = root.height
-        if (w <= 0 || h <= 0) return
-        val bmp = ensureWindowBmp(w, h) ?: return onCaptureFailed()
-        val token = ++captureToken
-        val deadline = Runnable {
-            if (captureToken == token) {
-                captureToken = -1
-                // 200ms 超时=PixelCopy 回调不回（OEM 兼容面）——直接转软件绘制
-                android.util.Log.w("FlipBridge", "PixelCopy 超时→软件绘制回退")
-                softwareCapture()
-            }
-        }
-        captureDeadline?.let { mainHandler.removeCallbacks(it) }
-        captureDeadline = deadline
-        mainHandler.postDelayed(deadline, 200L)
-        try {
-            PixelCopy.request(activity.window, bmp, { result ->
-                mainHandler.post {
-                    if (captureToken != token) return@post
-                    captureDeadline?.let { mainHandler.removeCallbacks(it) }
-                    captureToken = -1
-                    if (result == PixelCopy.SUCCESS) onCaptureReady(bmp) else {
-                        android.util.Log.w("FlipBridge", "PixelCopy 失败 code=$result→软件绘制回退")
-                        softwareCapture()
-                    }
-                }
-            }, mainHandler)
-        } catch (e: Exception) {
-            android.util.Log.w("FlipBridge", "PixelCopy 抛异常→软件绘制回退", e)
-            captureDeadline?.let { mainHandler.removeCallbacks(it) }
-            captureToken = -1
-            softwareCapture()
-        }
+        // ⭐批⑩R4：全走软件绘制（PixelCopy 在站主 ROM 上 SUCCESS 但帧错位=裁剪区
+        // 比纸页小→拉伸=「文字突然放大」；软件 rootView.draw 所见即所得零语义风险，
+        // 慢 50-150ms 已被预拍移出关键路径——起手走预拍缓存/即时亮相）
+        softwareCapture()
     }
 
-    /** 软件绘制回退：rootView.draw(canvas)（Chromium WebView 支持软件 canvas 输出） */
+    /** 软件绘制拍照：rootView.draw(canvas)（Chromium WebView 支持软件 canvas 输出；
+     *  帧与 getLocationInWindow 同坐标语义=裁剪精确） */
     private fun softwareCapture() {
         try {
             val wv = webViewProvider() ?: return onCaptureFailed()
             val root = wv.rootView
+            if (root.width <= 0 || root.height <= 0) return onCaptureFailed()
             val bmp = ensureWindowBmp(root.width, root.height) ?: return onCaptureFailed()
             captureToken = -1
             captureDeadline?.let { mainHandler.removeCallbacks(it) }
-            android.util.Log.i("FlipBridge", "软件绘制拍照 ${root.width}x${root.height}")
             root.draw(Canvas(bmp))
             onCaptureReady(bmp)
         } catch (e: Exception) {
@@ -502,7 +514,7 @@ class FlipController(
             pageBmp = pb
         }
         Canvas(pb).drawBitmap(window, Rect(left, top, left + w, top + h), RectF(0f, 0f, w.toFloat(), h.toFloat()), null)
-        captureFreshAt = android.os.SystemClock.uptimeMillis()
+        preheatGen = pageGen
         val s = session
         if (s != null && s.pendingBitmap) {
             s.pendingBitmap = false

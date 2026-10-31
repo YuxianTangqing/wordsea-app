@@ -38,10 +38,10 @@ class CurlPageView(context: Context) : View(context) {
     private val HALF_PI = Math.PI.toFloat() / 2f
 
 
-    /** 卷筒半径占页宽比（起点式中等卷筒） */
-    private val curlRadiusRatio = 0.18f
-    /** 卷筒条带数 */
-    private val stripCount = 16
+    /** 卷筒半径占页宽比（起点式细卷筒——批⑩R4 0.18→0.15 更像纸） */
+    private val curlRadiusRatio = 0.15f
+    /** 卷筒条带数（批⑩R4 16→24 卷曲面更顺） */
+    private val stripCount = 24
     /** θ 达此值画全透明终态（章内=撤层前视效；THETA_CEIL=170 留 2° 余量） */
     private val thetaFull = 168f
 
@@ -172,8 +172,15 @@ class CurlPageView(context: Context) : View(context) {
     // ══ page 模式：整页圆柱卷曲（条带绘制） ══
 
     private fun drawCurl(canvas: Canvas) {
-        val bmp = bitmap ?: return
+        val bmp = bitmap
         if (theta >= thetaFull) return // 全透明终态：透出 WebView 实时新页（撤层前视效）
+        // 批⑩R4 即时亮相：位图未就绪（预拍 miss+软件拍在途）先画纸底色跟手——
+        // 消灭「按住死一下」空窗；位图到位 startVisual 换真图
+        if (bmp == null) {
+            backPaint.color = bgColor
+            canvas.drawRect(pageX, pageY, pageX + pageW, pageY + pageH, backPaint)
+            return
+        }
         if (theta <= 0.5f) { // 平铺原样（锁定瞬间零跳变）
             canvas.drawBitmap(bmp, pageX, pageY, paint)
             return
@@ -189,6 +196,15 @@ class CurlPageView(context: Context) : View(context) {
         var ell = if (denom < 0.01f) 0f else
             (fingerX - w * cosPhi - r * sinPhi + r * phi * cosPhi) / denom
         ell = ell.coerceIn(0f, w)
+
+        // ⭐批⑩R4 终态离屏过渡：θ 150→170 整纸向左滑出一页宽（20° 行程）——几何在
+        // θ≈168 仍有 ~25% 平贴残段，直接跳全透明=闪变（站主「一闪就过去」之二）；
+        // 连续滑出=与撤层零跳变。回弹/回拖反向同式连续。
+        val offW = if (theta > 150f) (theta - 150f) / 20f * w else 0f
+        if (offW > 0f) {
+            canvas.save()
+            canvas.translate(-offW * dirSign(), 0f)
+        }
 
         // ── 1. 平贴残段（未翻部分，纸正面原位）：dst=src=[0, ell]（dir 镜像在 drawSeg 内换算） ──
         if (ell > 1f) {
@@ -230,13 +246,15 @@ class CurlPageView(context: Context) : View(context) {
             }
         }
 
-        // ── 4. 底页投影（翻起纸落在屏上的阴影，透明洞侧） ──
+        if (offW > 0f) canvas.restore()
+
+        // ── 4. 底页投影（翻起纸落在屏上的阴影，透明洞侧；不随纸离屏平移——底页物） ──
         val (us, uo) = FlipDynamics.underShadow(theta)
         if (uo > 0.01f && !einkMode) {
             val fromX = if (dir == 1) pageX + ell else pageX + w - ell - w * us
             shadowPaint.shader = LinearGradient(
                 fromX, 0f, fromX + w * us, 0f,
-                (uo * 255).toInt().shl(24), Color.TRANSPARENT, Shader.TileMode.CLAMP
+                (uo * 0.8f * 255).toInt().shl(24), Color.TRANSPARENT, Shader.TileMode.CLAMP
             )
             canvas.drawRect(
                 minOf(fromX, fromX + w * us), pageY,
@@ -246,12 +264,13 @@ class CurlPageView(context: Context) : View(context) {
         }
     }
 
-    /** 条带明暗（卷筒暗带在 α≈π/2；背面微亮） */
+    /** 条带明暗（卷筒暗带在 α≈π/2；批⑩R4 缓入曲线 sin²——硬 sin 起步陡=「粗糙」感来源） */
     private fun shadeOf(alpha: Float): Float {
         if (alpha < HALF_PI) {
-            return 1f - FlipDynamics.SHADE_PEAK * sin(alpha)
+            val s = sin(alpha)
+            return 1f - FlipDynamics.SHADE_PEAK * s * s
         }
-        return 1f - FlipDynamics.SHADE_PEAK * (1f - (alpha - HALF_PI) / HALF_PI) * 0.6f
+        return 1f - FlipDynamics.SHADE_PEAK * (1f - (alpha - HALF_PI) / HALF_PI) * 0.5f
     }
 
     /**

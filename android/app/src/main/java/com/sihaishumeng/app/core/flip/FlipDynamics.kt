@@ -94,7 +94,8 @@ object FlipDynamics {
     fun flipDuration(vx: Float, theta: Float): Float {
         val speed = clamp01(vx / 1.2f)
         val dist = clamp01(theta / THETA_CEIL)
-        val dur = (FLIP_MIN_MS + (1f - speed) * (1f - 0.35f * dist) * (FLIP_MAX_MS - FLIP_MIN_MS)) * 1.05f
+        // 批⑩R4：卷页系数 1.05→1.5（240-570ms 绵感——rotateY 轻感的时长对卷曲观感偏短）
+        val dur = (FLIP_MIN_MS + (1f - speed) * (1f - 0.35f * dist) * (FLIP_MAX_MS - FLIP_MIN_MS)) * 1.5f
         return max(60f, round(dur).toFloat())
     }
 
