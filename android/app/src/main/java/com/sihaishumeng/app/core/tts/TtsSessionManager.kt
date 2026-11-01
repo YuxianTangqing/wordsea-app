@@ -155,6 +155,7 @@ object TtsSessionManager {
         contentToken = token
         startOrderIndex = o.optInt("orderIndex", toc.first())
         state = "preparing"
+        stopVoicePlayback() // ⭐审查修：会话重入（「朗读本段」重起播）先止旧语音——防旧评论外放+迟到回调污染新会话
         resetChapterRuntime()
         val voiceId = o.optString("voiceId")
         if (voiceId.isNotEmpty()) Engine.setVoice(voiceId)
@@ -177,8 +178,15 @@ object TtsSessionManager {
         return true
     }
 
-    /** 桥/通知栏/耳机统一控制口（actionJson={a,v}） */
+    /** 桥/通知栏/耳机统一控制口（actionJson={a,v}）。
+     *  ⭐M362 审查修：@JavascriptInterface 跑 binder 线程——收敛主线程执行再动状态机
+     *  （批⑨ 起本口被桥直调属存量松动，M362 语音外设操作（MediaPlayer/pauseX）使其
+     *  成为必修的正确性问题；通知栏/耳机路径本就在主线程，post 幂等无害）。 */
     fun control(actionJson: String) {
+        main.post { controlOnMain(actionJson) }
+    }
+
+    private fun controlOnMain(actionJson: String) {
         val a = try {
             JSONObject(actionJson)
         } catch (_: Exception) {
@@ -203,6 +211,12 @@ object TtsSessionManager {
         if (v == "off" && voiceStage == "voice") {
             stopVoicePlayback()
             if (state == "playing") {
+                // 审查修：off 止播即刻补发 para（清 web「段评♪」徽标+高亮复位当前段，幂等）
+                emit("para") {
+                    put("orderIndex", toc[tocPos])
+                    put("paraIndex", paraPos)
+                    put("chapterTitle", chapterTitle)
+                }
                 if (chunkPos < chunks.size) speakCurrentChunk() else moveToNextPara()
             }
         }
@@ -489,10 +503,8 @@ object TtsSessionManager {
                     put("paraIndex", paraPos)
                     put("chapterTitle", chapterTitle)
                 }
-                if (hasVoice) emit("voice") {
-                    put("orderIndex", toc[tocPos])
-                    put("paraIndex", paraPos)
-                }
+                // 审查修：voice 事件移至 playVoice 真实起播处发（after 档段首即亮=整段文字
+                // 朗读期谎报「正在播放」）
                 when {
                     paraVoice == "replace" && hasVoice -> playVoice(
                         onDone = { moveToNextPara() },
@@ -521,7 +533,10 @@ object TtsSessionManager {
     /** M362 段评语音起播（进语音态三件套——设计压测 R2/R3 落点）：
      *  ①curUtterId=null 关 utterance 三门（Engine 轮询/字数估算的迟到 done 全被 id
      *    对账拦下）；②watchdogRunnables++ 作废残留文本看门狗票（长语音期
-     *    watchdogRecover=双声道的双保险）；③voiceTicket 代际作废停机后的迟到回调。 */
+     *    watchdogRecover=双声道的双保险）；③voiceTicket 代际作废停机后的迟到回调。
+     *  ⭐审查修（睡眠复活+暂停越权同根）：完成/失败续体统一 state 门——checkSleepDeadline
+     *  收摊（idle）或暂停（paused）后绝不执行续体；暂停场景由 resume() 三路分流接管
+     *  （voiceStage 已复位 text：before=读文字块、after/replace=段推进，原位语义保持）。 */
     private fun playVoice(onDone: () -> Unit, onError: () -> Unit, voiceKey: String?, voiceMs: Long) {
         val key = voiceKey ?: return onError()
         curUtterId = null
@@ -529,6 +544,10 @@ object TtsSessionManager {
         voice?.stopAndRelease() // 防重入
         val ticket = ++voiceTicket
         voiceStage = "voice"
+        emit("voice") {
+            put("orderIndex", toc[tocPos])
+            put("paraIndex", paraPos)
+        }
         voice = VoiceClipPlayer(
             url = SiteConfig.SITE_URL + "/uploads/voice/" + key,
             rate = rate,
@@ -537,14 +556,14 @@ object TtsSessionManager {
                     voiceStage = "text"
                     voice = null
                     checkSleepDeadline()
-                    onDone()
+                    if (state == "playing") onDone()
                 }
             },
             onError = {
                 if (ticket == voiceTicket && voiceStage == "voice") {
                     voiceStage = "text"
                     voice = null
-                    onError()
+                    if (state == "playing") onError()
                 }
             }
         )
