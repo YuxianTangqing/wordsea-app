@@ -549,6 +549,9 @@ object TtsSessionManager {
             put("paraIndex", paraPos)
         }
         voice = VoiceClipPlayer(
+            // 五十一批换装 ExoPlayer 需 Context（appContext 会话起播必置；缺失=构造
+            // 不了，按播放失败回落续读，不阻断朗读）
+            context = appContext ?: return onError(),
             url = SiteConfig.SITE_URL + "/uploads/voice/" + key,
             rate = rate,
             onDone = {

@@ -131,8 +131,22 @@ android {
         //   内测态不变：BILI_MOBILE_* 双键留空=端点 404 隐藏，union_id 工单批复后探针
         //   复验再转正）。内测直装批：web 半边（va 下发/设置行门控同版本）先部署无害
         //   ——门控 compareVersions 2.0.17<2.0.18 自隐藏。
-        versionCode = 33
-        versionName = "2.0.18"
+        // 五十一批 2.0.19 (34)：装机反馈返修两件——①麦克风预授权桥 ensureMicPermission
+        //   （web getUserMedia 之前先要 RECORD_AUDIO：2.0.18 竞态=系统弹框期页面失焦
+        //   Chromium 取消挂起的 WebView 请求，「权限给了仍报无法访问麦克风」根治；弹框
+        //   挪到挂起请求之外，用户允许后 onPermissionRequest 恒走「已授→直接 grant」
+        //   快路；onPermissionRequestCanceled/req==null 两处 Log.w 留证）。
+        //   ②听书语音插播换装 Media3 ExoPlayer——MediaPlayer 解不了浏览器 MediaRecorder
+        //   产物 webm/opus（站主真机实锤：段评列表 WebView 能播、听书四档全不播=解码
+        //   差异）；ExoPlayer 自带 Matroska/Mp4 抽取器+统一 MediaCodec 管线（平台
+        //   c2.android.opus.decoder API21+ 强制），STATE_ENDED 走 EOS 不依赖 webm 头部
+        //   时长；VoiceClipPlayer 全方法自包含 main 线程收敛（MediaPlayer 容忍跨线程、
+        //   ExoPlayer 跨线程抛 IllegalStateException——桥直调 start() 的存量松动不再
+        //   依赖调用方线程纪律）；onPlayerError 错误码三态（IO/解析/解码）Log.w 留证
+        //   =换装本身即判定实验。web 半边（B 预检+文案）同批先部署无害（typeof 特征
+        //   探测，无桥走原路）。
+        versionCode = 34
+        versionName = "2.0.19"
     }
 
     signingConfigs {
@@ -187,4 +201,10 @@ dependencies {
     // （queries 须 scheme 形态）；未装B站客户端自兜 OauthWebActivity（H5 授权页，
     // AAR manifest 自带声明）。SDK 出包 gate 在 union_id 探针复验通过之后。
     implementation(files("libs/accountoauth-2.0.0.0.aar"))
+    // 五十一批：听书段评语音插播放器（Media3 ExoPlayer——MediaPlayer 解不了 webm/
+    // opus；自带抽取器+统一 MediaCodec 管线；consumer rules 随 AAR 自动生效=R8 直开
+    // 兼容）。只此一个 artifact：官方无 decoder-opus 之类 Maven 件（软解 Opus=ffmpeg
+    // 扩展须源码自编）——网上第三方预编译 AAR=供应链风险禁用。Opus 解码走平台
+    // MediaCodec（c2.android.opus.decoder API21+ 强制，minSdk 24 全覆盖）。
+    implementation("androidx.media3:media3-exoplayer:1.8.0")
 }
