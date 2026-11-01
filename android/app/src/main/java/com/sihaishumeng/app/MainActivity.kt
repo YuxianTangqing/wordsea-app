@@ -124,19 +124,60 @@ class MainActivity : AppCompatActivity() {
     // M362 语音评论麦克风：WebView getUserMedia 的 PermissionRequest 挂起件——系统
     // 运行时权限弹窗期间保持挂起（不先 deny：先 deny=用户稍后同意被误判永久拒绝，
     // 该 WebView 请求终结不可复活，页面须刷新重来）；新请求顶旧挂起（页面侧录音本
-    // 就单实例串行）；grant/deny 全 try（页面已导航的 stale 请求可能抛/no-op，吞掉）
+    // 就单实例串行）；grant/deny 全 try（页面已导航的 stale 请求可能抛/no-op，吞掉）。
+    // 五十一批（2.0.19）：预检挂起件并行加入——弹框结果先结算 pendingMicCallback
+    // （回呼网页后 web 才发起 getUserMedia，两槽实测不重叠但结算序=预检优先）；
+    // req==null 与 onPermissionRequestCanceled 两处 Log.w（2.0.18 竞态定位留证）。
     private var pendingPermissionRequest: PermissionRequest? = null
+    private var pendingMicCallback: String? = null
     private val micPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            // 五十一批预检结算：回呼网页（window[name] 存在性守卫=页面已导航静默）
+            pendingMicCallback?.let { cb ->
+                pendingMicCallback = null
+                evalMicCallback(cb, granted)
+            }
             val req = pendingPermissionRequest
             pendingPermissionRequest = null
-            if (req == null) return@registerForActivityResult
+            if (req == null) {
+                // 2.0.18 竞态现场：弹框期 Chromium 已取消挂起请求（onPermissionRequestCanceled
+                // 清引用）→ 授权晚到白给——预检桥上线后本路径应只剩兜底残留
+                android.util.Log.w(
+                    "MicPerm",
+                    "permission result granted=$granted but no pending web request (canceled during dialog?)"
+                )
+                return@registerForActivityResult
+            }
             try {
                 if (granted) req.grant(req.resources) else req.deny()
             } catch (_: Exception) {
                 /* stale 请求：页面侧已终结 */
             }
         }
+
+    /** 五十一批桥 ensureMicPermission 落地（主线程）：已授立即回 true；未授弹系统框、
+     *  选择后经 launcher 回呼。单槽顶掉旧回呼（fileChooserCallback 范式——重复点
+     *  「开始录音」等重入，旧页面已导航时 evalJs 守卫自然吞掉）。 */
+    private fun handleEnsureMicPermission(callbackName: String) {
+        pendingMicCallback = callbackName
+        if (ContextCompat.checkSelfPermission(
+                this, Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingMicCallback = null
+            evalMicCallback(callbackName, true)
+            return
+        }
+        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    /** 预检结果回呼（socialLogin 同款 string 契约：window[name] 存在性守卫+布尔实参） */
+    private fun evalMicCallback(callbackName: String, granted: Boolean) {
+        evalJs(
+            "window[${JSONObject.quote(callbackName)}] && " +
+                "window[${JSONObject.quote(callbackName)}](${if (granted) "true" else "false"});"
+        )
+    }
 
     // 批④W 桥面社交登录：网页登录页四家按钮经 __wsShell.socialLogin 进来，结果 JSON
     // 经 window[callbackName]("<json 字符串>") 回呼网页。批⑤R 归一 string 契约——
@@ -301,6 +342,7 @@ class MainActivity : AppCompatActivity() {
                 ::handleSocialLogin,
                 { json -> flipController.onDeclaration(json) },
                 { json -> flipController.onProgramFlip(json) },
+                ::handleEnsureMicPermission,
             ),
             "__wsShell",
         )
@@ -440,15 +482,24 @@ class MainActivity : AppCompatActivity() {
                 return
             }
             pendingPermissionRequest?.let { old ->
+                android.util.Log.w("MicPerm", "new web request displaces pending one (denied)")
                 try { old.deny() } catch (_: Exception) { }
             }
             pendingPermissionRequest = request
             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
 
-        // 页面侧取消（导航/超时自灭）：只清引用，绝不 grant/deny 已取消请求
+        // 页面侧取消（导航/超时自灭）：只清引用，绝不 grant/deny 已取消请求。
+        // 五十一批 Log.w：2.0.18 竞态链的第一现场（系统弹框令页面失焦→Chromium 取消
+        // 挂起请求→用户允许后晚到白给）——预检桥上线后本日志应静默
         override fun onPermissionRequestCanceled(request: PermissionRequest) {
-            if (pendingPermissionRequest === request) pendingPermissionRequest = null
+            if (pendingPermissionRequest === request) {
+                pendingPermissionRequest = null
+                android.util.Log.w(
+                    "MicPerm",
+                    "pending web PermissionRequest canceled (system dialog hid the page?) — late grant will be dropped"
+                )
+            }
         }
     }
 

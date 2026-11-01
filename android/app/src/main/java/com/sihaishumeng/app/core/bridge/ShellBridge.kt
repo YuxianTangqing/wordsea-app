@@ -43,6 +43,11 @@ class ShellBridge(
     /** 批⑩ 程序翻页请求（web requestPageFlip 转发 FlipController；切主线程）。
      *  ⚠️ 同上命名铁律：参数名与方法 fun requestPageFlip 严禁同名。 */
     private val onFlipRequest: (String) -> Unit,
+    /** 五十一批 web 录音预检：web getUserMedia 之前经 ensureMicPermission 桥先把
+     *  RECORD_AUDIO 落成已授（系统弹框挪到 WebView 挂起请求之外=挂起件取消竞态
+     *  根治）。转发宿主 handleEnsureMicPermission（切主线程）。
+     *  ⚠️ 同上命名铁律：参数名与方法 fun ensureMicPermission 严禁同名。 */
+    private val onEnsureMicPermission: (String) -> Unit,
 ) {
     @JavascriptInterface
     fun versionName(): String = try {
@@ -150,6 +155,18 @@ class ShellBridge(
     @JavascriptInterface
     fun socialLogin(provider: String, optionsJson: String, callbackName: String) {
         activity.runOnUiThread { onSocialLogin(provider, optionsJson, callbackName) }
+    }
+
+    /** 五十一批（2.0.19）web 录音预检口：getUserMedia 之前先把 RECORD_AUDIO 落成
+     *  已授——系统弹框发生在 WebView 挂起请求之外＝2.0.18 竞态（弹框期页面失焦
+     *  Chromium 取消挂起请求、允许结果白给）根治；用户允许后到达的
+     *  onPermissionRequest 恒走「已授→直接 grant」快路。callbackName=网页注册的一次
+     *  性回呼名，结果经 window[callbackName](true/false)（已授立即回 true，未授弹
+     *  系统框、用户选择后回）。跑在 binder 线程——切主线程（弹框/evalJs 均主线程面）。
+     *  web 侧 typeof 特征探测（旧壳无此方法=跳过预检走 getUserMedia 原路=双向部署安全）。 */
+    @JavascriptInterface
+    fun ensureMicPermission(callbackName: String) {
+        activity.runOnUiThread { onEnsureMicPermission(callbackName) }
     }
 
     // ══ 批⑩ 仿真翻页三法（增量不在冻结列；web 特征探测缺失=回落网页翻页=双向部署安全） ══
