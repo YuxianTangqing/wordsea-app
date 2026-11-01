@@ -1,8 +1,10 @@
 package com.sihaishumeng.app
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
@@ -13,6 +15,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -27,6 +30,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.sihaishumeng.app.core.SiteConfig
@@ -115,6 +119,23 @@ class MainActivity : AppCompatActivity() {
             }
             fileChooserCallback?.onReceiveValue(uris?.toTypedArray()?.takeIf { it.isNotEmpty() })
             fileChooserCallback = null
+        }
+
+    // M362 语音评论麦克风：WebView getUserMedia 的 PermissionRequest 挂起件——系统
+    // 运行时权限弹窗期间保持挂起（不先 deny：先 deny=用户稍后同意被误判永久拒绝，
+    // 该 WebView 请求终结不可复活，页面须刷新重来）；新请求顶旧挂起（页面侧录音本
+    // 就单实例串行）；grant/deny 全 try（页面已导航的 stale 请求可能抛/no-op，吞掉）
+    private var pendingPermissionRequest: PermissionRequest? = null
+    private val micPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val req = pendingPermissionRequest
+            pendingPermissionRequest = null
+            if (req == null) return@registerForActivityResult
+            try {
+                if (granted) req.grant(req.resources) else req.deny()
+            } catch (_: Exception) {
+                /* stale 请求：页面侧已终结 */
+            }
         }
 
     // 批④W 桥面社交登录：网页登录页四家按钮经 __wsShell.socialLogin 进来，结果 JSON
@@ -400,6 +421,34 @@ class MainActivity : AppCompatActivity() {
                 fileChooserCallback = null
                 false
             }
+        }
+
+        // M362 麦克风：网页 getUserMedia（语音评论录音）经此回调——WebView 默认实现
+        // 不响应=请求搁置到超时（批3 前壳内 web 侧判「不支持录音」的根因）。仅放行
+        // 音频采集，其余资源一律 deny；已授权直 grant（WebView 按源记忆授权）
+        override fun onPermissionRequest(request: PermissionRequest) {
+            val audio = request.resources.any { it == PermissionRequest.RESOURCE_AUDIO_CAPTURE }
+            if (!audio) {
+                try { request.deny() } catch (_: Exception) { }
+                return
+            }
+            if (ContextCompat.checkSelfPermission(
+                    this@MainActivity, Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                try { request.grant(request.resources) } catch (_: Exception) { }
+                return
+            }
+            pendingPermissionRequest?.let { old ->
+                try { old.deny() } catch (_: Exception) { }
+            }
+            pendingPermissionRequest = request
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+
+        // 页面侧取消（导航/超时自灭）：只清引用，绝不 grant/deny 已取消请求
+        override fun onPermissionRequestCanceled(request: PermissionRequest) {
+            if (pendingPermissionRequest === request) pendingPermissionRequest = null
         }
     }
 

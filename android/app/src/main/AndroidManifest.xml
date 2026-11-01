@@ -13,6 +13,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- M362 语音评论麦克风（网页 getUserMedia）：WebView 的 onPermissionRequest
+         叠加本地授权层，运行时申请在 MainActivity（micPermissionLauncher）。
+         uses-feature 非必需——无麦设备照装，录音功能照实报不支持 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
 
     <!-- 包可见性：外跳送系统浏览器（ACTION_VIEW https）需要；批③ 三家登录宿主 App
          可见性（微信 isWXAppInstalled 探测 / QQ 拉起与 WAP 兜底 / 支付宝预留）；
