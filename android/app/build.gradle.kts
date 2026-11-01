@@ -123,8 +123,16 @@ android {
         //   通过前不发正式窗——web 侧端点 BILI_MOBILE_* 双键仍留空=404 隐藏，真机
         //   内测验收只到「拉起授权页+取消」（union_id 未批走完授权=openid 键裂号）。
         //   探针 ❌ 则本版本号作废（下批顺延 33/2.0.18 记档）。
-        versionCode = 32
-        versionName = "2.0.17"
+        // M362 批3 2.0.18 (33)：听书×段评语音联动（advance 拆块/段推进+四档插播
+        //   off/before/after/replace——原生缺省 off=dormant，web 起播显式下发；F1 存量
+        //   修复：beginChapter 起播段 off-by-one 每章跳首段）+壳内麦克风（RECORD_AUDIO+
+        //   onPermissionRequest 挂起件——批3 前壳内录音按钮恒不渲染的闸解除，web 侧
+        //   voiceRecorderSupported 版本门 ≥2.0.18）。批⑧ SDK 代码随线性史在包（预备
+        //   内测态不变：BILI_MOBILE_* 双键留空=端点 404 隐藏，union_id 工单批复后探针
+        //   复验再转正）。内测直装批：web 半边（va 下发/设置行门控同版本）先部署无害
+        //   ——门控 compareVersions 2.0.17<2.0.18 自隐藏。
+        versionCode = 33
+        versionName = "2.0.18"
     }
 
     signingConfigs {

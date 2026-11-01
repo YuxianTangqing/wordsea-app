@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import com.sihaishumeng.app.core.api.ApiClient
+import com.sihaishumeng.app.core.SiteConfig
 import com.sihaishumeng.app.core.tts.TtsEngineHolder as Engine
 import org.json.JSONArray
 import org.json.JSONObject
@@ -23,12 +24,20 @@ import java.net.URLEncoder
  * POST /me/reading-token）→预取下一章（读度过半）→看门狗（块超时重 init 引擎
  * 自当前块续读，连败 2 次收摊）→事件经 WebChannel 注 window.__wsTtsSession。
  *
+ * M362 听书×段评联动：advance 拆「块推进 advance() + 段推进 moveToNextPara()」，
+ * 段边界按四档（off/before/after/replace）用 VoiceClipPlayer 插播该段最热语音
+ * （tts[].va={k,d}；失败静默跳过/replace 回落读文字）；语音期 curUtterId=null+
+ * 作废看门狗票=引擎对账免疫；暂停恢复/停机跳段/auth 五路全接语音急停或原位暂停。
+ *
  * 全状态机跑主线程（Handler 串行）；引擎就绪后拉起 TtsPlaybackService（前台
  * 通知+MediaSession+音频焦点——通知栏/耳机三键经 Service 回调 control()）。
  */
 object TtsSessionManager {
 
     private val main = Handler(Looper.getMainLooper())
+
+    /** M362 联动四档（与 web READER_TTS_PARA_VOICE 同源） */
+    private val PARA_VOICE_MODES = setOf("off", "before", "after", "replace")
 
     // ── 会话态（全部主线程读写） ──
     private var state = "idle" // idle | preparing | playing | paused
@@ -43,8 +52,18 @@ object TtsSessionManager {
     private var startOrderIndex = -1 // 「本章完」档的「本章」=起播章（web 逐块同语义）
     private var contentToken = ""
 
+    // M362 听书×段评联动：off|before|after|replace（缺省 off=dormant 家法——旧页面×
+    // 新 APK 不自作主张替换正文朗读；用户可感默认档由 web 起播显式下发承担）
+    private var paraVoice = "off"
+
     // 当前章数据
-    private class Para(val text: String, val hash: String, val skip: Boolean)
+    private class Para(
+        val text: String,
+        val hash: String,
+        val skip: Boolean,
+        val voiceKey: String? = null, // M362 该段最热语音（segments tts[].va.k；旧服务端无 va=null）
+        val voiceMs: Long = 0L
+    )
     private var chapterTitle = ""
     private var paras: List<Para> = emptyList()
     private var paraPos = 0
@@ -59,6 +78,12 @@ object TtsSessionManager {
     private var watchdogRunnables = 0
     private var watchdogFails = 0
     private var speakAt = 0L
+
+    // M362 段评语音插播态
+    private var voice: VoiceClipPlayer? = null
+    private var voiceStage = "text" // text | voice（resume 分流：语音中原位续播而非重读文字）
+    private var voiceTicket = 0 // 代际计数：停机/跳段作废迟到回调（stopAndRelease 之外的双保险）
+    private var voicePlayedPara = -1 // after 档防双播（段号；beginChapter 重置）
 
     // 心跳
     private var heartbeatSeq = 0
@@ -123,6 +148,9 @@ object TtsSessionManager {
         bookTitle = o.optString("bookTitle")
         rate = o.optDouble("rate", 1.0).toFloat()
         sleepTimer = o.optString("sleepTimer", "off")
+        // M362 联动四档白名单（缺省 off；脏值回落 off）
+        val pv = o.optString("paraVoice", "off")
+        paraVoice = if (pv in PARA_VOICE_MODES) pv else "off"
         toc = (0 until tocArr.length()).map { tocArr.optInt(it) }
         contentToken = token
         startOrderIndex = o.optInt("orderIndex", toc.first())
@@ -162,8 +190,21 @@ object TtsSessionManager {
             "stop" -> stopSession("user")
             "setRate" -> rate = a.optDouble("v", 1.0).toFloat()
             "setSleep" -> applySleep(a.optString("v", "off"))
+            "setParaVoice" -> applyParaVoice(a.optString("v", "off")) // M362 联动档热更
             "next" -> jumpChapter(1)
             "prev" -> jumpChapter(-1)
+        }
+    }
+
+    /** M362 联动档热更：off 立即止当前评论续读；其余下一 para 边界自然生效（半程不改形态） */
+    private fun applyParaVoice(v: String) {
+        if (v !in PARA_VOICE_MODES) return
+        paraVoice = v
+        if (v == "off" && voiceStage == "voice") {
+            stopVoicePlayback()
+            if (state == "playing") {
+                if (chunkPos < chunks.size) speakCurrentChunk() else moveToNextPara()
+            }
         }
     }
 
@@ -184,6 +225,7 @@ object TtsSessionManager {
             settleActiveSeconds()
             state = "paused"
             curUtterId = null
+            voice?.pauseX() // M362 语音中原位暂停（看门狗挂起；resume 续播不重头）
             Engine.stop()
             emitPaused()
             service?.onSessionChanged()
@@ -196,7 +238,15 @@ object TtsSessionManager {
             activeSince = System.currentTimeMillis()
             emitResumed()
             service?.onSessionChanged()
-            speakCurrentChunk()
+            // M362 分流：语音态原位续播；文字态 chunks 空守卫（replace 段语音被停后
+            // 直接段推进——该段本就不读文字，不续读=不空转卡死）
+            if (voiceStage == "voice" && voice != null) {
+                voice?.resumeX()
+            } else if (chunkPos < chunks.size) {
+                speakCurrentChunk()
+            } else {
+                moveToNextPara()
+            }
         }
     }
 
@@ -206,6 +256,7 @@ object TtsSessionManager {
         reportProgress(final = true)
         state = "idle"
         curUtterId = null
+        stopVoicePlayback() // M362 停机五路之一：语音残响必止
         resetChapterRuntime()
         nextChapterCache = null
         Engine.stop()
@@ -227,6 +278,7 @@ object TtsSessionManager {
         if (!active()) return
         val next = tocPos + dir
         if (next < 0 || next >= toc.size) return
+        stopVoicePlayback() // M362 停机五路之一：跳章先止当前语音
         Engine.stop()
         curUtterId = null
         openChapter(toc[next], 0)
@@ -240,6 +292,7 @@ object TtsSessionManager {
         chunkPos = 0
         tocPos = -1
         fetchingChapter = false
+        voicePlayedPara = -1
     }
 
     // ══════════ 章节拉取与推进 ══════════
@@ -284,7 +337,11 @@ object TtsSessionManager {
                                 val p = ttsArr.optJSONObject(i) ?: continue
                                 val t = p.optString("t")
                                 val br = p.optBoolean("br")
-                                list.add(Para(t, p.optString("h"), br || t.isEmpty()))
+                                // M362 该段最热语音（旧服务端无 va 键=null → 联动自然失活，
+                                // 双向部署安全；预取章同载）
+                                val va = p.optJSONObject("va")
+                                val vk = va?.optString("k")?.takeIf { it.isNotEmpty() }
+                                list.add(Para(t, p.optString("h"), br || t.isEmpty(), vk, va?.optLong("d") ?: 0L))
                             }
                             if (tocPos >= 0 && toc[tocPos] == orderIndex) {
                                 chapterTitle = d.optString("title")
@@ -319,6 +376,7 @@ object TtsSessionManager {
 
     private fun failChapter() {
         state = "idle"
+        stopVoicePlayback() // M362 停机五路之一：拉章失败收摊必止语音
         service?.stopSelfSafe()
     }
 
@@ -369,7 +427,12 @@ object TtsSessionManager {
     private fun beginChapter(title: String, list: List<Para>, paraStart: Int) {
         chapterTitle = title
         paras = list
-        paraPos = paraStart.coerceIn(0, (list.size - 1).coerceAtLeast(0))
+        // ⭐F1 存量修复（M362 随批）：置 paraStart-1，让 moveToNextPara 的前置自增精确
+        // 落在 paraStart——旧版 paraPos=paraStart 直调 advance()，前置自增使起播/跳章/
+        // 连读/断点续听全部跳过目标段本身（单段章整章跳空直落 chapterDone；批⑨R4 换
+        // 推进语义时入口补偿缺失）
+        paraPos = paraStart.coerceIn(0, (list.size - 1).coerceAtLeast(0)) - 1
+        voicePlayedPara = -1
         state = "playing"
         activeSince = System.currentTimeMillis()
         startHeartbeat()
@@ -378,39 +441,122 @@ object TtsSessionManager {
             put("orderIndex", toc[tocPos])
             put("chapterTitle", title)
         }
-        advance()
+        moveToNextPara()
     }
 
     // ══════════ 朗读推进（块状态机） ══════════
 
-    /** 当前段推进口：块未尽读下一块；段尽下一段；章尽按 toc 连读。
+    /** 块推进口（utterance done 的唯一续入口）。
      *  ⭐批⑨R4 结构修：原版恒「重切当前段+chunkPos=0 重读」=站主真机「不断重复一段」
      *  真根因——chunkPos 在推进路径上从不自增、paraPos 只在 skip/空段才走，正常段
      *  永远停在同段第一块循环（与引擎无关，所有设备皆然；站主三轮引擎侧排查
-     *  〔queries/轮询补发/估算补发〕全打在错误的靶层——补发越勤循环越欢）。 */
+     *  〔queries/轮询补发/估算补发〕全打在错误的靶层——补发越勤循环越欢）。
+     *  M362 拆分：本函数只管当前段文本块；段推进下沉 moveToNextPara()（语音槽位挂
+     *  段边界；after 档在段文本读尽处插语音——播完再段推进，末段评论先于 chapterDone）。 */
     private fun advance() {
         chunkPos++
         if (chunkPos < chunks.size) {
             speakCurrentChunk()
             return
         }
+        val cur = paras.getOrNull(paraPos)
+        if (paraVoice == "after" && cur != null && cur.voiceKey != null && voicePlayedPara != paraPos) {
+            voicePlayedPara = paraPos
+            playVoice(
+                onDone = { moveToNextPara() },
+                onError = { moveToNextPara() },
+                voiceKey = cur.voiceKey,
+                voiceMs = cur.voiceMs
+            )
+            return
+        }
+        moveToNextPara()
+    }
+
+    /** 段推进（原 advance 的 while 体）：落位段决策语音槽位（replace=不读文字只播评论、
+     *  before=评论先于文字、after=文字后的槽在 advance 块尽处）后 speak；章尽收口。 */
+    private fun moveToNextPara() {
         while (++paraPos < paras.size) {
             val p = paras[paraPos]
             if (p.skip) continue
-            chunks = splitChunks(p.text, 300)
+            val hasVoice = paraVoice != "off" && p.voiceKey != null
+            chunks = if (paraVoice == "replace" && hasVoice) emptyList() else splitChunks(p.text, 300)
             chunkPos = 0
-            if (chunks.isNotEmpty()) {
+            if (chunks.isNotEmpty() || (paraVoice == "replace" && hasVoice)) {
                 reportAnchor()
                 emit("para") {
                     put("orderIndex", toc[tocPos])
                     put("paraIndex", paraPos)
                     put("chapterTitle", chapterTitle)
                 }
-                speakCurrentChunk()
+                if (hasVoice) emit("voice") {
+                    put("orderIndex", toc[tocPos])
+                    put("paraIndex", paraPos)
+                }
+                when {
+                    paraVoice == "replace" && hasVoice -> playVoice(
+                        onDone = { moveToNextPara() },
+                        onError = { // 播放失败回落读文字——该段内容不丢
+                            chunks = splitChunks(p.text, 300)
+                            chunkPos = 0
+                            if (chunks.isNotEmpty()) speakCurrentChunk() else moveToNextPara()
+                        },
+                        voiceKey = p.voiceKey,
+                        voiceMs = p.voiceMs
+                    )
+                    paraVoice == "before" && hasVoice -> playVoice(
+                        onDone = { speakCurrentChunk() },
+                        onError = { speakCurrentChunk() },
+                        voiceKey = p.voiceKey,
+                        voiceMs = p.voiceMs
+                    )
+                    else -> speakCurrentChunk()
+                }
                 return
             }
         }
         chapterDone()
+    }
+
+    /** M362 段评语音起播（进语音态三件套——设计压测 R2/R3 落点）：
+     *  ①curUtterId=null 关 utterance 三门（Engine 轮询/字数估算的迟到 done 全被 id
+     *    对账拦下）；②watchdogRunnables++ 作废残留文本看门狗票（长语音期
+     *    watchdogRecover=双声道的双保险）；③voiceTicket 代际作废停机后的迟到回调。 */
+    private fun playVoice(onDone: () -> Unit, onError: () -> Unit, voiceKey: String?, voiceMs: Long) {
+        val key = voiceKey ?: return onError()
+        curUtterId = null
+        watchdogRunnables++
+        voice?.stopAndRelease() // 防重入
+        val ticket = ++voiceTicket
+        voiceStage = "voice"
+        voice = VoiceClipPlayer(
+            url = SiteConfig.SITE_URL + "/uploads/voice/" + key,
+            rate = rate,
+            onDone = {
+                if (ticket == voiceTicket && voiceStage == "voice") {
+                    voiceStage = "text"
+                    voice = null
+                    checkSleepDeadline()
+                    onDone()
+                }
+            },
+            onError = {
+                if (ticket == voiceTicket && voiceStage == "voice") {
+                    voiceStage = "text"
+                    voice = null
+                    onError()
+                }
+            }
+        )
+        voice?.armCompletionWatchdog(voiceMs)
+    }
+
+    /** M362 语音急停（停机/跳段/off 热更）——不触发续体回调，由调用方接管走向 */
+    private fun stopVoicePlayback() {
+        voiceTicket++
+        voice?.stopAndRelease()
+        voice = null
+        voiceStage = "text"
     }
 
     private fun speakCurrentChunk() {
@@ -541,6 +687,7 @@ object TtsSessionManager {
                     if (state == "playing") {
                         settleActiveSeconds()
                         state = "paused"
+                        voice?.pauseX() // M362 停机五路之一：auth 暂停（语音原位待续）
                         Engine.stop()
                         emit("auth")
                         service?.onSessionChanged()
