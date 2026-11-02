@@ -52,6 +52,10 @@ class ShellBridge(
      *  应用占用」真凶。转发宿主 handleMicProbe（切主线程）。
      *  ⚠️ 同上命名铁律：参数名与方法 fun micProbe 严禁同名。 */
     private val onMicProbe: (String) -> Unit,
+    /** 五十五批 原生录音宿主面（MainActivity 实现；binder 线程直调快照/动作——
+     *  实现须线程安全）。web 侧 typeof 特征探测（旧壳无 micRec* 方法=跳过走
+     *  getUserMedia 原路=双向部署安全）。 */
+    private val micRec: MicRecHost,
 ) {
     @JavascriptInterface
     fun versionName(): String = try {
@@ -183,7 +187,119 @@ class ShellBridge(
         activity.runOnUiThread { onMicProbe(callbackName) }
     }
 
-    // ══ 批⑩ 仿真翻页三法（增量不在冻结列；web 特征探测缺失=回落网页翻页=双向部署安全） ══
+    // ══ 五十五批 原生录音链（2.0.23；web 特征探测缺失=回落 getUserMedia=双向部署安全） ══
+    // 全同步面（无回呼）：web 侧轮询 micRecState() 驱动状态机；产物经分块拉取
+    // （micRecChunk——Binder 单串 1MB 上限防 TransactionTooLarge）。批⑩R 同款
+    // runCatching 纪律：任何异常吞掉回默认值，绝不回抛 JS。
+
+    /** 开始原生录音（宿主校验 RECORD_AUDIO 已授+建实例+起线程）。false=未授权/忙。 */
+    @JavascriptInterface
+    fun micRecStart(maxMs: Int): Boolean = try {
+        micRec.start(maxMs)
+    } catch (e: Exception) {
+        android.util.Log.e("MicRec", "start", e)
+        false
+    }
+
+    @JavascriptInterface
+    fun micRecPause() {
+        try {
+            micRec.pause()
+        } catch (e: Exception) {
+            android.util.Log.e("MicRec", "pause", e)
+        }
+    }
+
+    @JavascriptInterface
+    fun micRecResume() {
+        try {
+            micRec.resume()
+        } catch (e: Exception) {
+            android.util.Log.e("MicRec", "resume", e)
+        }
+    }
+
+    /** 收尾请求（异步终局：web 轮询 state 到 stopped 后分块拉取） */
+    @JavascriptInterface
+    fun micRecStop() {
+        try {
+            micRec.stop()
+        } catch (e: Exception) {
+            android.util.Log.e("MicRec", "stop", e)
+        }
+    }
+
+    /** 放弃（弃数据进 cancelled；web 端继续轮询终局态） */
+    @JavascriptInterface
+    fun micRecCancel() {
+        try {
+            micRec.cancel()
+        } catch (e: Exception) {
+            android.util.Log.e("MicRec", "cancel", e)
+        }
+    }
+
+    /** 拉完产物/失败/放弃后释放实例（web 每次录音会话收尾必调） */
+    @JavascriptInterface
+    fun micRecClear() {
+        try {
+            micRec.clear()
+        } catch (e: Exception) {
+            android.util.Log.e("MicRec", "clear", e)
+        }
+    }
+
+    /** idle|recording|paused|stopped|error:…|cancelled */
+    @JavascriptInterface
+    fun micRecState(): String = try {
+        micRec.state()
+    } catch (e: Exception) {
+        android.util.Log.e("MicRec", "state", e)
+        "idle"
+    }
+
+    /** 最近 100ms 片电平（0..1；暂停期冻结） */
+    @JavascriptInterface
+    fun micRecLevel(): Double = try {
+        micRec.level()
+    } catch (e: Exception) {
+        android.util.Log.e("MicRec", "level", e)
+        0.0
+    }
+
+    @JavascriptInterface
+    fun micRecDuration(): Int = try {
+        micRec.durationMs()
+    } catch (e: Exception) {
+        android.util.Log.e("MicRec", "duration", e)
+        0
+    }
+
+    /** 开头静音实测毫秒（stopped 后有效；-1=无效/null） */
+    @JavascriptInterface
+    fun micRecLead(): Int = try {
+        micRec.leadMs()
+    } catch (e: Exception) {
+        android.util.Log.e("MicRec", "lead", e)
+        -1
+    }
+
+    @JavascriptInterface
+    fun micRecChunkCount(): Int = try {
+        micRec.chunkCount()
+    } catch (e: Exception) {
+        android.util.Log.e("MicRec", "chunkCount", e)
+        0
+    }
+
+    /** 分块拉取（0..chunkCount-1；越界/未就绪=空串） */
+    @JavascriptInterface
+    fun micRecChunk(i: Int): String = try {
+        micRec.chunk(i)
+    } catch (e: Exception) {
+        android.util.Log.e("MicRec", "chunk", e)
+        ""
+    }
     // 批⑩R：三方法全链 runCatching——真机站主实录「选仿真翻页弹降级提示」=桥异常
     // 以 JS Error 同步抛回网页（45 窗 web 已套防御保命，本侧再加纵深：任何未预见
     // 异常吞掉+Log.e 定位，绝不回抛 JS/绝不崩主线程）。
@@ -231,4 +347,24 @@ class ShellBridge(
             android.util.Log.e("FlipBridge", "requestPageFlip", e)
         }
     }
+}
+
+/**
+ * 五十五批 原生录音宿主面：ShellBridge 的 micRec* 全同步方法落到此接口（MainActivity
+ * 实现）——binder 线程直调，实现必须线程安全（NativeMicRecorder 内部锁保证）。
+ * start=false=未授权/忙；clear=产物拉完/放弃后释放实例（防内存驻留）。
+ */
+interface MicRecHost {
+    fun start(maxMs: Int): Boolean
+    fun pause()
+    fun resume()
+    fun stop()
+    fun cancel()
+    fun clear()
+    fun state(): String
+    fun level(): Double
+    fun durationMs(): Int
+    fun leadMs(): Int
+    fun chunkCount(): Int
+    fun chunk(i: Int): String
 }

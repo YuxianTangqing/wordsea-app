@@ -10,6 +10,7 @@ import com.sihaishumeng.app.core.tts.TtsEngineHolder as Engine
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
+import kotlin.concurrent.thread
 
 /**
  * 批⑨ 原生听书会话状态机（进程单例；前台服务只是它的「通知栏+耳机+焦点」宿主——
@@ -92,6 +93,7 @@ object TtsSessionManager {
 
     // M362 段评语音插播态
     private var voice: VoiceClipPlayer? = null
+    private var voiceLocalFile: String? = null // 五十五批 剪裁临时文件（急停/换代清场用）
     private var voiceStage = "text" // text | voice（resume 分流：语音中原位续播而非重读文字）
     private var voiceTicket = 0 // 代际计数：停机/跳段作废迟到回调（stopAndRelease 之外的双保险）
     private var voicePlayedPara = -1 // after 档防双播（段号；beginChapter 重置）
@@ -581,14 +583,16 @@ object TtsSessionManager {
         curUtterId = null
         watchdogRunnables++
         voice?.stopAndRelease() // 防重入
+        deleteVoiceLocalFile() // 五十五批 上一条剪裁临时文件随重入清场
         val ticket = ++voiceTicket
         voiceStage = "voice"
         emit("voice") {
             put("orderIndex", toc[tocPos])
             put("paraIndex", paraPos)
         }
-        // 五十四批 真跳过：优先播 WAV 伴件（头带精确时长 seek 可靠）；webm 无时长头
-        // 恒不 seek（2.0.20 真机毁插播实锤）——skip 只在 WAV 上生效，存量无伴件=不跳
+        // 五十五批 真跳过：优先播 WAV 伴件——「跳过」=后台下载+WavSlicer 纯字节剪裁
+        // →本地文件从 0 播（零 seek；2.0.20/2.0.22 两连 seek 毁插播教训收口）。
+        // webm 无时长头恒不剪=存量无伴件不跳
         val wav = voiceWavKey?.takeIf { it.isNotEmpty() }
         val skipMs = if (wav != null) {
             when (voiceSkipMode) { // off=0 / fixed=固定秒数 / auto=实测（无实测值回落固定档）
@@ -597,13 +601,40 @@ object TtsSessionManager {
                 else -> 0L
             }
         } else 0L
+        val remoteUrl = SiteConfig.SITE_URL + "/uploads/voice/" + (wav ?: key)
+        if (wav != null && skipMs > 0) {
+            // 剪裁链：后台线程下载+剪裁 → main 对账（ticket）后起播本地文件；任何失败
+            // 回落远端原件不跳——「出声不跳」铁律（跳过是增强项绝不毁播放链）
+            thread {
+                val local = WavSlicer.downloadTrimmed(remoteUrl, skipMs, appContext?.cacheDir)
+                main.post {
+                    if (ticket != voiceTicket || voiceStage != "voice") return@post
+                    startClip(local ?: remoteUrl, voiceMs, local, ticket, onDone, onError)
+                    if (state == "paused") voice?.pauseX() // 下载窗内暂停：起播前先挂起
+                }
+            }
+            return
+        }
+        startClip(remoteUrl, voiceMs, null, ticket, onDone, onError)
+    }
+
+    /** 五十五批 起播语音剪辑公共收口（playVoice 两路共用：直连远端/剪裁本地）。
+     *  localFile=剪裁临时文件绝对路径（null=远端直连）——播完/异常即删。 */
+    private fun startClip(
+        url: String,
+        voiceMs: Long,
+        localFile: String?,
+        ticket: Int,
+        onDone: () -> Unit,
+        onError: () -> Unit
+    ) {
+        voiceLocalFile = localFile
         voice = VoiceClipPlayer(
             // 五十一批换装 ExoPlayer 需 Context（appContext 会话起播必置；缺失=构造
             // 不了，按播放失败回落续读，不阻断朗读）
             context = appContext ?: return onError(),
-            url = SiteConfig.SITE_URL + "/uploads/voice/" + (wav ?: key),
+            url = url,
             rate = rate,
-            skipMs = skipMs, // 五十四批 开头静音真跳过（WAV seek）
             onDone = {
                 if (ticket == voiceTicket && voiceStage == "voice") {
                     voiceStage = "text"
@@ -611,6 +642,7 @@ object TtsSessionManager {
                     checkSleepDeadline()
                     if (state == "playing") onDone()
                 }
+                deleteVoiceLocalFile()
             },
             onError = {
                 if (ticket == voiceTicket && voiceStage == "voice") {
@@ -618,9 +650,16 @@ object TtsSessionManager {
                     voice = null
                     if (state == "playing") onError()
                 }
+                deleteVoiceLocalFile()
             }
         )
         voice?.armCompletionWatchdog(voiceMs)
+    }
+
+    /** 剪裁临时文件清场（幂等） */
+    private fun deleteVoiceLocalFile() {
+        voiceLocalFile?.let { runCatching { java.io.File(it).delete() } }
+        voiceLocalFile = null
     }
 
     /** M362 语音急停（停机/跳段/off 热更）——不触发续体回调，由调用方接管走向 */
@@ -629,6 +668,7 @@ object TtsSessionManager {
         voice?.stopAndRelease()
         voice = null
         voiceStage = "text"
+        deleteVoiceLocalFile() // 五十五批 急停/跳段：剪裁临时文件随代际作废
     }
 
     private fun speakCurrentChunk() {

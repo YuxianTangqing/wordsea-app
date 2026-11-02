@@ -13,6 +13,8 @@ import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.View
@@ -37,11 +39,13 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.sihaishumeng.app.core.SiteConfig
+import com.sihaishumeng.app.core.bridge.MicRecHost
 import com.sihaishumeng.app.core.bridge.ShellBridge
 import com.sihaishumeng.app.core.device.KeyboardInsetController
 import com.sihaishumeng.app.core.flip.CurlPageView
 import com.sihaishumeng.app.core.flip.FlipController
 import com.sihaishumeng.app.core.flip.FlipInterceptorLayout
+import com.sihaishumeng.app.core.mic.NativeMicRecorder
 import com.sihaishumeng.app.core.tts.TtsEngineHolder
 import com.sihaishumeng.app.core.tts.WebChannel
 import com.sihaishumeng.app.core.update.SelfUpdateController
@@ -49,6 +53,8 @@ import com.sihaishumeng.app.core.web.WebViewRouter
 import com.sihaishumeng.app.social.SocialAuthController
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
 /**
@@ -112,6 +118,61 @@ class MainActivity : AppCompatActivity() {
 
     // 文件上传（改头像等）：回调置空防 Activity 泄漏（onDestroy 兜底 null）
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+
+    /** 五十五批 原生录音链：当前录音实例（MicRecHost 面；clear 释放防内存驻留） */
+    private var micRecorder: NativeMicRecorder? = null
+    /** 初始化卡死看门狗（AudioRecord 构造在个别 ROM 音频服务卡死态可能阻塞——
+     *  10s 仍无数据=强杀+错误回报，绝不留占麦） */
+    private val micInitWatchdog = Handler(Looper.getMainLooper())
+    private val micInitWatchdogRunnable = object : Runnable {
+        override fun run() {
+            val r = micRecorder ?: return
+            if (r.state() == "recording" && r.durationMs() == 0) {
+                r.forceError("init-timeout")
+            }
+        }
+    }
+    /** ShellBridge MicRecHost 面（binder 线程直调；NativeMicRecorder 内部锁保证线程安全） */
+    private val micRecHost = object : MicRecHost {
+        override fun start(maxMs: Int): Boolean {
+            if (ContextCompat.checkSelfPermission(
+                    this@MainActivity, Manifest.permission.RECORD_AUDIO
+                ) != PackageManager.PERMISSION_GRANTED
+            ) return false
+            val cur = micRecorder
+            if (cur != null && (cur.state() == "recording" || cur.state() == "paused")) return false
+            val r = NativeMicRecorder(maxMs.coerceIn(500, 300_000))
+            micRecorder = r
+            if (!r.start()) {
+                micRecorder = null
+                return false
+            }
+            micInitWatchdog.postDelayed(micInitWatchdogRunnable, 10_000)
+            return true
+        }
+        override fun pause() {
+            micRecorder?.pause()
+        }
+        override fun resume() {
+            micRecorder?.resume()
+        }
+        override fun stop() {
+            micRecorder?.stop()
+        }
+        override fun cancel() {
+            micRecorder?.cancel()
+        }
+        override fun clear() {
+            micInitWatchdog.removeCallbacks(micInitWatchdogRunnable)
+            micRecorder = null
+        }
+        override fun state(): String = micRecorder?.state() ?: "idle"
+        override fun level(): Double = micRecorder?.level() ?: 0.0
+        override fun durationMs(): Int = micRecorder?.durationMs() ?: 0
+        override fun leadMs(): Int = micRecorder?.leadMs() ?: -1
+        override fun chunkCount(): Int = micRecorder?.chunkCount() ?: 0
+        override fun chunk(i: Int): String = micRecorder?.chunk(i) ?: ""
+    }
     private val fileChooserLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             val uris = result.data?.let { data ->
@@ -192,8 +253,9 @@ class MainActivity : AppCompatActivity() {
 
     /** 五十四批 录音自检（原生 AudioRecord 短录探针，失败路径专属）——判别「麦克风被
      *  其他应用占用」真凶：ok=内核录音正常（问题在 WebView 采集层）/ in-use=HAL 报忙 /
-     *  no-perm=未授权 / fail:…=异常详情。探针自身 try/finally 必释放，绝不留占用；
-     *  后台线程跑（AudioRecord 阻塞面），回呼经 runOnUiThread 切回主线程。 */
+     *  no-perm=未授权 / fail:…=异常详情。五十五批加固：原生侧 1.5s 看门狗——构造/read
+     *  卡死（个别 ROM 音频服务卡死态，2.0.22 站主实录「无自检行」=探针卡死没回话）
+     *  时看门狗 release 解除阻塞并回报 fail:timeout——任何路径必有回话，绝不留占用。 */
     private fun handleMicProbe(callbackName: String) {
         if (ContextCompat.checkSelfPermission(
                 this, Manifest.permission.RECORD_AUDIO
@@ -202,8 +264,20 @@ class MainActivity : AppCompatActivity() {
             evalMicProbeCallback(callbackName, "no-perm")
             return
         }
+        val recRef = AtomicReference<AudioRecord?>()
+        val done = AtomicBoolean(false)
+        val h = Handler(Looper.getMainLooper())
+        val watchdog = object : Runnable {
+            override fun run() {
+                if (done.compareAndSet(false, true)) {
+                    // release 线程安全——可解除阻塞中的 read（返回错误值）
+                    runCatching { recRef.get()?.release() }
+                    evalMicProbeCallback(callbackName, "fail:timeout")
+                }
+            }
+        }
+        h.postDelayed(watchdog, 1500)
         thread {
-            var rec: AudioRecord? = null
             val result: String = try {
                 val minBuf = AudioRecord.getMinBufferSize(
                     16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
@@ -213,7 +287,7 @@ class MainActivity : AppCompatActivity() {
                     MediaRecorder.AudioSource.MIC, 16000,
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, size
                 )
-                rec = r
+                recRef.set(r)
                 if (r.state != AudioRecord.STATE_INITIALIZED) {
                     "fail:init"
                 } else {
@@ -233,12 +307,15 @@ class MainActivity : AppCompatActivity() {
                 ) "in-use" else "fail:${e.javaClass.simpleName}:${m.take(40)}"
             } finally {
                 try {
-                    rec?.release()
+                    recRef.get()?.release()
                 } catch (_: Exception) {
                     /* 已释放 */
                 }
             }
-            runOnUiThread { evalMicProbeCallback(callbackName, result) }
+            if (done.compareAndSet(false, true)) {
+                h.removeCallbacks(watchdog)
+                runOnUiThread { evalMicProbeCallback(callbackName, result) }
+            }
         }
     }
 
@@ -407,6 +484,7 @@ class MainActivity : AppCompatActivity() {
                 { json -> flipController.onProgramFlip(json) },
                 ::handleEnsureMicPermission,
                 ::handleMicProbe,
+                micRecHost, // 五十五批 原生录音链宿主面
             ),
             "__wsShell",
         )

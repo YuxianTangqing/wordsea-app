@@ -41,11 +41,9 @@ class VoiceClipPlayer(
     context: Context,
     url: String,
     private val rate: Float,
-    /** 五十四批 开头静音跳过（毫秒；0=不跳）。真跳过=READY 后起播前 seekTo——
-     *  只在 WAV 上生效（WAV 头带精确时长、SeekMap 可寻，seek 100% 可靠；调用方对
-     *  webm 恒传 0——MediaRecorder 产 webm 无时长头，站主真机实锤 2.0.20 的 seekTo
-     *  让插播整个不播，webm 永不 seek）。失败静默按 0 播：跳过是增强项绝不毁播放链。 */
-    private val skipMs: Long,
+    // 五十五批 零 seek 铁律：2.0.20 webm seek 毁插播、2.0.22 WAV seek 再毁插播
+    // （站主设备两连实锤）——本类永久删除 seek 能力，「开头静音跳过」由调用方
+    // 经 WavSlicer 剪裁成本地文件从 0 播承担。
     private val onDone: () -> Unit,
     private val onError: () -> Unit
 ) {
@@ -119,17 +117,8 @@ class VoiceClipPlayer(
     private fun beginPlay() {
         val p = player ?: return finish(error = true)
         try {
-            // 五十四批 真跳过：WAV 上 seekTo（时长守卫：seek 点须留 ≥100ms 内容防「跳到
-            // 末尾」空播；TIME_UNSET 不出现在 WAV——兜底分支恒真）。失败静默按 0 播，
-            // 跳过绝不阻断朗读
-            if (skipMs > 0) {
-                try {
-                    val d = p.duration
-                    if (d == C.TIME_UNSET || skipMs < d - 100) p.seekTo(skipMs)
-                } catch (_: Exception) {
-                    /* 静默按 0 播 */
-                }
-            }
+            // 五十五批 零 seek：从 0 播。开头跳过由调用方剪裁好的本地文件承担
+            // （WavSlicer）——URL 可能指向本地 file:// 或远端直链，本类一概不寻址
             p.play()
             started = true
         } catch (e: Exception) {

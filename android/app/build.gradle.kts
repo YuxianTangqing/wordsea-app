@@ -164,8 +164,16 @@ android {
         //   seekTo+时长守卫；同批：录音自检诊断（MainActivity 原生 AudioRecord 探针
         //   +ShellBridge micProbe 桥——判别「麦克风被其他应用占用」真凶）。web 侧同批：
         //   设置行门控与下发门升 ≥2.0.22。⭐同上：自更新链按 versionName 比较必须升名。
-        versionCode = 37
-        versionName = "2.0.22"
+        // 五十五批 2.0.23 (38)：站主实锤 2.0.22 起播前 seek 让跳过档再次毁插播
+        //   （「不跳过能播/跳过档不播」）——跳过改零 seek：WavSlicer 下载+纯字节剪裁
+        //   →本地文件从 0 播（失败回落远端不跳）；VoiceClipPlayer 永久删 seek 能力。
+        //   同批：⭐App 原生录音链（OPPO 安卓 11 真机壳内 WebView getUserMedia 恒
+        //   NotReadableError）——NativeMicRecorder（AudioRecord 直录 16kHz WAV+硬超时+
+        //   绝不占麦）+ShellBridge micRec* 全同步桥面+分块拉取；探针加固（1.5s 原生
+        //   看门狗绝不再「无自检行」）。web 侧同批：跳过门控升 ≥2.0.23（2.0.22 用户
+        //   升级前强制 off=不触发坏播放）。⭐同上：自更新链按 versionName 比较必须升名。
+        versionCode = 38
+        versionName = "2.0.23"
     }
 
     signingConfigs {
