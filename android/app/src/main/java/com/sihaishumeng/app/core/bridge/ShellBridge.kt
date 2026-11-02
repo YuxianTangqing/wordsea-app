@@ -192,13 +192,34 @@ class ShellBridge(
     // （micRecChunk——Binder 单串 1MB 上限防 TransactionTooLarge）。批⑩R 同款
     // runCatching 纪律：任何异常吞掉回默认值，绝不回抛 JS。
 
-    /** 开始原生录音（宿主校验 RECORD_AUDIO 已授+建实例+起线程）。false=未授权/忙。 */
+    /** 开始原生录音（宿主自请求 RECORD_AUDIO+建实例+起线程）。false=未授权/忙/起录失败。 */
     @JavascriptInterface
     fun micRecStart(maxMs: Int): Boolean = try {
         micRec.start(maxMs)
     } catch (e: Exception) {
         android.util.Log.e("MicRec", "start", e)
         false
+    }
+
+    /** 五十六批 start() 失败原因（''|'perm'|'busy'|'start'）——false 时读它区分「未授权/
+     *  忙/起录失败」，web 红字直达+perm 显「去设置」按钮。 */
+    @JavascriptInterface
+    fun micRecStartError(): String = try {
+        micRec.startError()
+    } catch (e: Exception) {
+        android.util.Log.e("MicRec", "startError", e)
+        ""
+    }
+
+    /** 五十六批 打开本 App 系统设置页（ACTION_APPLICATION_DETAILS_SETTINGS）——
+     *  权限被系统自动拒（安卓 11 两次拒绝后不再弹框）时用户手动授权入口。 */
+    @JavascriptInterface
+    fun micRecOpenSettings() {
+        try {
+            micRec.openSettings()
+        } catch (e: Exception) {
+            android.util.Log.e("MicRec", "openSettings", e)
+        }
     }
 
     @JavascriptInterface
@@ -352,10 +373,14 @@ class ShellBridge(
 /**
  * 五十五批 原生录音宿主面：ShellBridge 的 micRec* 全同步方法落到此接口（MainActivity
  * 实现）——binder 线程直调，实现必须线程安全（NativeMicRecorder 内部锁保证）。
- * start=false=未授权/忙；clear=产物拉完/放弃后释放实例（防内存驻留）。
+ * start=false=未授权/忙/起录失败（五十六批起自请求 RECORD_AUDIO：缺权限弹系统框
+ * 阻塞等待，拒绝/超时返 false+startError='perm'）；clear=产物拉完/放弃后释放实例
+ * （防内存驻留）。
  */
 interface MicRecHost {
     fun start(maxMs: Int): Boolean
+    fun startError(): String
+    fun openSettings()
     fun pause()
     fun resume()
     fun stop()

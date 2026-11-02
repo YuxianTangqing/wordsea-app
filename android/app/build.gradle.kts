@@ -172,8 +172,13 @@ android {
         //   绝不占麦）+ShellBridge micRec* 全同步桥面+分块拉取；探针加固（1.5s 原生
         //   看门狗绝不再「无自检行」）。web 侧同批：跳过门控升 ≥2.0.23（2.0.22 用户
         //   升级前强制 off=不触发坏播放）。⭐同上：自更新链按 versionName 比较必须升名。
-        versionCode = 38
-        versionName = "2.0.23"
+        // 五十六批 2.0.24 (39)：站主实录 App 点录音「从不弹系统权限框」（micRecStart
+        //   只查不请求+预检桥失效无自愈）——权限请求收进 start 自身：缺权限单飞 launch
+        //   系统框+阻塞等待（≤120s），拒绝/超时返 false+startError='perm'；桥加
+        //   micRecStartError/micRecOpenSettings（「去设置」直达授权页）。⭐自更新链按
+        //   versionName 比较必须升名。
+        versionCode = 39
+        versionName = "2.0.24"
     }
 
     signingConfigs {

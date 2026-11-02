@@ -53,6 +53,8 @@ import com.sihaishumeng.app.core.web.WebViewRouter
 import com.sihaishumeng.app.social.SocialAuthController
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
@@ -132,23 +134,84 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+    /** 五十六批 录音权限自请求：start() 缺权限时阻塞等待弹框结果（≤120s）的单槽 latch；
+     *  micPermRequesting=单飞闸——三路共用 micPermissionLauncher（预检桥 ensureMicPermission/
+     *  getUserMedia 挂起件/本路 start），弹框期后到者只等结果不重复 launch（防双弹框/抢槽） */
+    @Volatile private var micStartPermLatch: CountDownLatch? = null
+    @Volatile private var micStartPermGranted = false
+    @Volatile private var micPermRequesting = false
+    /** start() 失败原因（''|'perm'|'busy'|'start'）——web micRecStartError() 读取后红字直达 */
+    @Volatile private var micStartError = ""
     /** ShellBridge MicRecHost 面（binder 线程直调；NativeMicRecorder 内部锁保证线程安全） */
     private val micRecHost = object : MicRecHost {
         override fun start(maxMs: Int): Boolean {
+            val cur = micRecorder
+            if (cur != null && (cur.state() == "recording" || cur.state() == "paused")) {
+                micStartError = "busy"
+                return false
+            }
             if (ContextCompat.checkSelfPermission(
                     this@MainActivity, Manifest.permission.RECORD_AUDIO
                 ) != PackageManager.PERMISSION_GRANTED
-            ) return false
-            val cur = micRecorder
-            if (cur != null && (cur.state() == "recording" || cur.state() == "paused")) return false
+            ) {
+                // 五十六批：缺权限不再静默败（2.0.23 站主实录「从不弹框」=预检桥失效后
+                // 无自愈）——本路自请求：单飞 launch+阻塞等待（系统弹框在顶，网页暂冻
+                // 无感；binder 线程等，主线程不阻塞无 ANR）；拒绝/超时带 'perm' 码回报，
+                // web 显「去设置」指引。三路共用 launcher，已有人弹框则只等结果
+                micStartPermGranted = false
+                val latch = CountDownLatch(1)
+                micStartPermLatch = latch
+                runOnUiThread {
+                    if (!micPermRequesting) {
+                        micPermRequesting = true
+                        try {
+                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } catch (e: Exception) {
+                            micPermRequesting = false
+                            micStartPermGranted = false
+                            latch.countDown()
+                        }
+                    }
+                }
+                if (!latch.await(120, TimeUnit.SECONDS)) {
+                    micStartPermLatch = null
+                    micStartError = "perm"
+                    return false
+                }
+                micStartPermLatch = null
+                if (!micStartPermGranted) {
+                    micStartError = "perm"
+                    return false
+                }
+                // 授权后重查忙态（弹框期可能已有别的会话起录）
+                val cur2 = micRecorder
+                if (cur2 != null && (cur2.state() == "recording" || cur2.state() == "paused")) {
+                    micStartError = "busy"
+                    return false
+                }
+            }
             val r = NativeMicRecorder(maxMs.coerceIn(500, 300_000))
             micRecorder = r
             if (!r.start()) {
                 micRecorder = null
+                micStartError = "start"
                 return false
             }
             micInitWatchdog.postDelayed(micInitWatchdogRunnable, 10_000)
+            micStartError = ""
             return true
+        }
+        override fun startError(): String = micStartError
+        override fun openSettings() {
+            runOnUiThread {
+                runCatching {
+                    val i = Intent(
+                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", packageName, null)
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(i)
+                }
+            }
         }
         override fun pause() {
             micRecorder?.pause()
@@ -196,6 +259,14 @@ class MainActivity : AppCompatActivity() {
     private var pendingMicCallback: String? = null
     private val micPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            // 五十六批 三路共用 launcher：单飞闸复位+start() 阻塞等待者结算（先于预检/
+            // 挂起件结算——start 的 binder 线程正堵在 latch 上等本结果）
+            micPermRequesting = false
+            micStartPermGranted = granted
+            micStartPermLatch?.let { l ->
+                micStartPermLatch = null
+                l.countDown()
+            }
             // 五十一批预检结算：回呼网页（window[name] 存在性守卫=页面已导航静默）
             pendingMicCallback?.let { cb ->
                 pendingMicCallback = null
@@ -232,6 +303,7 @@ class MainActivity : AppCompatActivity() {
             evalMicCallback(callbackName, true)
             return
         }
+        micPermRequesting = true
         micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
 
@@ -628,6 +700,7 @@ class MainActivity : AppCompatActivity() {
                 try { old.deny() } catch (_: Exception) { }
             }
             pendingPermissionRequest = request
+            micPermRequesting = true
             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
 
