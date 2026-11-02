@@ -157,8 +157,15 @@ android {
         //   提到 ≥2.0.21（2.0.20 用户升级前强制 off=不触发坏播放）。⭐自更新链按
         //   versionName 比较（SelfUpdateController ?v= 闸）——必须升名，否则
         //   2.0.20(35) 用户被「已是最新版本」挡住拿不到修复。
-        versionCode = 36
-        versionName = "2.0.21"
+        // 五十四批 2.0.22 (37)：站主真机实锤 2.0.21 的静音起播不算跳过（开头本就是
+        //   静音，静音掉静音=听感零变化）——真跳过=听书插播优先播 WAV 伴件并真 seek
+        //   （WAV 头带精确时长 seek 可靠；webm 无时长头恒不 seek——2.0.20 毁插播教训）；
+        //   TtsSessionManager 收 va.w（WAV 裸文件名）播 WAV、VoiceClipPlayer READY 后
+        //   seekTo+时长守卫；同批：录音自检诊断（MainActivity 原生 AudioRecord 探针
+        //   +ShellBridge micProbe 桥——判别「麦克风被其他应用占用」真凶）。web 侧同批：
+        //   设置行门控与下发门升 ≥2.0.22。⭐同上：自更新链按 versionName 比较必须升名。
+        versionCode = 37
+        versionName = "2.0.22"
     }
 
     signingConfigs {

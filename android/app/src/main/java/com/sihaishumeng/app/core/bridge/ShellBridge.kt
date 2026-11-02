@@ -48,6 +48,10 @@ class ShellBridge(
      *  根治）。转发宿主 handleEnsureMicPermission（切主线程）。
      *  ⚠️ 同上命名铁律：参数名与方法 fun ensureMicPermission 严禁同名。 */
     private val onEnsureMicPermission: (String) -> Unit,
+    /** 五十四批 录音自检：原生 AudioRecord 探针（失败路径专属）——判别「麦克风被其他
+     *  应用占用」真凶。转发宿主 handleMicProbe（切主线程）。
+     *  ⚠️ 同上命名铁律：参数名与方法 fun micProbe 严禁同名。 */
+    private val onMicProbe: (String) -> Unit,
 ) {
     @JavascriptInterface
     fun versionName(): String = try {
@@ -167,6 +171,16 @@ class ShellBridge(
     @JavascriptInterface
     fun ensureMicPermission(callbackName: String) {
         activity.runOnUiThread { onEnsureMicPermission(callbackName) }
+    }
+
+    /** 五十四批（2.0.22）录音自检口：原生 AudioRecord 探针（失败路径专属）——判别
+     *  「麦克风被其他应用占用」真凶（HAL 忙 vs WebView 采集层）。callbackName=网页注册
+     *  的一次性回呼名，结果经 window[callbackName]('ok'|'in-use'|'no-perm'|'fail:…')。
+     *  跑在 binder 线程——切主线程（转发宿主）。web 侧 typeof 特征探测（旧壳无此
+     *  方法=跳过=零变化；双向部署安全）。 */
+    @JavascriptInterface
+    fun micProbe(callbackName: String) {
+        activity.runOnUiThread { onMicProbe(callbackName) }
     }
 
     // ══ 批⑩ 仿真翻页三法（增量不在冻结列；web 特征探测缺失=回落网页翻页=双向部署安全） ══

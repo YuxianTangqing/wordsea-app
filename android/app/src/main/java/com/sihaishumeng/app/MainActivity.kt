@@ -7,6 +7,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -179,6 +182,66 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /** 五十四批 自检结果回呼（同款守卫；string 实参 quote 注入） */
+    private fun evalMicProbeCallback(callbackName: String, result: String) {
+        evalJs(
+            "window[${JSONObject.quote(callbackName)}] && " +
+                "window[${JSONObject.quote(callbackName)}](${JSONObject.quote(result)});"
+        )
+    }
+
+    /** 五十四批 录音自检（原生 AudioRecord 短录探针，失败路径专属）——判别「麦克风被
+     *  其他应用占用」真凶：ok=内核录音正常（问题在 WebView 采集层）/ in-use=HAL 报忙 /
+     *  no-perm=未授权 / fail:…=异常详情。探针自身 try/finally 必释放，绝不留占用；
+     *  后台线程跑（AudioRecord 阻塞面），回呼经 runOnUiThread 切回主线程。 */
+    private fun handleMicProbe(callbackName: String) {
+        if (ContextCompat.checkSelfPermission(
+                this, Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            evalMicProbeCallback(callbackName, "no-perm")
+            return
+        }
+        thread {
+            var rec: AudioRecord? = null
+            val result: String = try {
+                val minBuf = AudioRecord.getMinBufferSize(
+                    16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+                )
+                val size = maxOf(minBuf, 16000 / 4 * 2) // ~250ms 缓冲
+                val r = AudioRecord(
+                    MediaRecorder.AudioSource.MIC, 16000,
+                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, size
+                )
+                rec = r
+                if (r.state != AudioRecord.STATE_INITIALIZED) {
+                    "fail:init"
+                } else {
+                    r.startRecording()
+                    if (r.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                        "fail:start"
+                    } else {
+                        val got = r.read(ShortArray(size / 2), 0, size / 2, 400)
+                        r.stop()
+                        if (got > 0) "ok" else "fail:read$got"
+                    }
+                }
+            } catch (e: Exception) {
+                val m = e.message ?: ""
+                if (Regex("-19|ERROR_IN_USE|in use|busy|AudioFlinger", RegexOption.IGNORE_CASE)
+                        .containsMatchIn(m)
+                ) "in-use" else "fail:${e.javaClass.simpleName}:${m.take(40)}"
+            } finally {
+                try {
+                    rec?.release()
+                } catch (_: Exception) {
+                    /* 已释放 */
+                }
+            }
+            runOnUiThread { evalMicProbeCallback(callbackName, result) }
+        }
+    }
+
     // 批④W 桥面社交登录：网页登录页四家按钮经 __wsShell.socialLogin 进来，结果 JSON
     // 经 window[callbackName]("<json 字符串>") 回呼网页。批⑤R 归一 string 契约——
     // 批④W 起把 JSONObject 裸内插进实参位（求值成 JS 对象），web 侧旧版按 string
@@ -343,6 +406,7 @@ class MainActivity : AppCompatActivity() {
                 { json -> flipController.onDeclaration(json) },
                 { json -> flipController.onProgramFlip(json) },
                 ::handleEnsureMicPermission,
+                ::handleMicProbe,
             ),
             "__wsShell",
         )

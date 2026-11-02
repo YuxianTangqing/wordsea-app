@@ -71,7 +71,9 @@ object TtsSessionManager {
         val voiceKey: String? = null, // M362 该段最热语音（segments tts[].va.k；旧服务端无 va=null）
         val voiceMs: Long = 0L,
         // 五十三批 开头静音实测毫秒（va.l；null=未检测/存量——「自动掐头」档回落固定档）
-        val voiceLeadMs: Long? = null
+        val voiceLeadMs: Long? = null,
+        // 五十四批 WAV 伴件裸文件名（va.w；null=无伴件/存量——插播优先播 WAV 真 seek）
+        val voiceWavKey: String? = null
     )
     private var chapterTitle = ""
     private var paras: List<Para> = emptyList()
@@ -377,7 +379,9 @@ object TtsSessionManager {
                                 // 五十三批：va.l=开头静音实测（缺失/null=未检测——JSONObject
                                 // 无键时 optLong 回落 0 会误读成「无静音」，has 判键区分）
                                 val vl = va?.let { if (it.has("l") && !it.isNull("l")) it.optLong("l") else null }
-                                list.add(Para(t, p.optString("h"), br || t.isEmpty(), vk, va?.optLong("d") ?: 0L, vl))
+                                // 五十四批：va.w=WAV 伴件（缺失/null/空串=无伴件——播 webm 不跳）
+                                val vw = va?.let { if (it.has("w") && !it.isNull("w")) it.optString("w").takeIf { s -> s.isNotEmpty() } else null }
+                                list.add(Para(t, p.optString("h"), br || t.isEmpty(), vk, va?.optLong("d") ?: 0L, vl, vw))
                             }
                             if (tocPos >= 0 && toc[tocPos] == orderIndex) {
                                 chapterTitle = d.optString("title")
@@ -503,7 +507,8 @@ object TtsSessionManager {
                 onError = { moveToNextPara() },
                 voiceKey = cur.voiceKey,
                 voiceMs = cur.voiceMs,
-                voiceLeadMs = cur.voiceLeadMs // 五十三批 开头静音实测
+                voiceLeadMs = cur.voiceLeadMs, // 五十三批 开头静音实测
+                voiceWavKey = cur.voiceWavKey // 五十四批 WAV 伴件
             )
             return
         }
@@ -538,14 +543,16 @@ object TtsSessionManager {
                         },
                         voiceKey = p.voiceKey,
                         voiceMs = p.voiceMs,
-                        voiceLeadMs = p.voiceLeadMs // 五十三批 开头静音实测
+                        voiceLeadMs = p.voiceLeadMs, // 五十三批 开头静音实测
+                        voiceWavKey = p.voiceWavKey // 五十四批 WAV 伴件
                     )
                     paraVoice == "before" && hasVoice -> playVoice(
                         onDone = { speakCurrentChunk() },
                         onError = { speakCurrentChunk() },
                         voiceKey = p.voiceKey,
                         voiceMs = p.voiceMs,
-                        voiceLeadMs = p.voiceLeadMs // 五十三批 开头静音实测
+                        voiceLeadMs = p.voiceLeadMs, // 五十三批 开头静音实测
+                        voiceWavKey = p.voiceWavKey // 五十四批 WAV 伴件
                     )
                     else -> speakCurrentChunk()
                 }
@@ -567,7 +574,8 @@ object TtsSessionManager {
         onError: () -> Unit,
         voiceKey: String?,
         voiceMs: Long,
-        voiceLeadMs: Long? = null // 五十三批 开头静音实测（null=未检测/存量）
+        voiceLeadMs: Long? = null, // 五十三批 开头静音实测（null=未检测/存量）
+        voiceWavKey: String? = null // 五十四批 WAV 伴件裸文件名（null=无伴件/存量）
     ) {
         val key = voiceKey ?: return onError()
         curUtterId = null
@@ -579,19 +587,23 @@ object TtsSessionManager {
             put("orderIndex", toc[tocPos])
             put("paraIndex", paraPos)
         }
-        // 五十三批 开头静音跳过：off=0 / fixed=固定秒数 / auto=实测（无实测值回落固定档）
-        val skipMs = when (voiceSkipMode) {
-            "fixed" -> voiceSkipMs
-            "auto" -> voiceLeadMs ?: voiceSkipMs
-            else -> 0L
-        }
+        // 五十四批 真跳过：优先播 WAV 伴件（头带精确时长 seek 可靠）；webm 无时长头
+        // 恒不 seek（2.0.20 真机毁插播实锤）——skip 只在 WAV 上生效，存量无伴件=不跳
+        val wav = voiceWavKey?.takeIf { it.isNotEmpty() }
+        val skipMs = if (wav != null) {
+            when (voiceSkipMode) { // off=0 / fixed=固定秒数 / auto=实测（无实测值回落固定档）
+                "fixed" -> voiceSkipMs
+                "auto" -> voiceLeadMs ?: voiceSkipMs
+                else -> 0L
+            }
+        } else 0L
         voice = VoiceClipPlayer(
             // 五十一批换装 ExoPlayer 需 Context（appContext 会话起播必置；缺失=构造
             // 不了，按播放失败回落续读，不阻断朗读）
             context = appContext ?: return onError(),
-            url = SiteConfig.SITE_URL + "/uploads/voice/" + key,
+            url = SiteConfig.SITE_URL + "/uploads/voice/" + (wav ?: key),
             rate = rate,
-            skipMs = skipMs, // 五十三批 开头静音跳过
+            skipMs = skipMs, // 五十四批 开头静音真跳过（WAV seek）
             onDone = {
                 if (ticket == voiceTicket && voiceStage == "voice") {
                     voiceStage = "text"

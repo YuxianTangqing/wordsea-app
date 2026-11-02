@@ -41,10 +41,10 @@ class VoiceClipPlayer(
     context: Context,
     url: String,
     private val rate: Float,
-    /** 五十三批热修 开头静音跳过（毫秒；0=不跳）。实现=**静音起播 skipMs 后恢复音量**：
-     *  不 seek——MediaRecorder 产 webm/opus 的 seek 依赖 Cues/流可寻性，站主真机实锤
-     *  2.0.20 的 seekTo 会让插播整个不播（卡缓冲/误报错误），跳过绝不能毁播放链。
-     *  开头 skipMs 本就是静音，静音放掉听感与 seek 完全等价、零寻址零风险。 */
+    /** 五十四批 开头静音跳过（毫秒；0=不跳）。真跳过=READY 后起播前 seekTo——
+     *  只在 WAV 上生效（WAV 头带精确时长、SeekMap 可寻，seek 100% 可靠；调用方对
+     *  webm 恒传 0——MediaRecorder 产 webm 无时长头，站主真机实锤 2.0.20 的 seekTo
+     *  让插播整个不播，webm 永不 seek）。失败静默按 0 播：跳过是增强项绝不毁播放链。 */
     private val skipMs: Long,
     private val onDone: () -> Unit,
     private val onError: () -> Unit
@@ -119,22 +119,19 @@ class VoiceClipPlayer(
     private fun beginPlay() {
         val p = player ?: return finish(error = true)
         try {
+            // 五十四批 真跳过：WAV 上 seekTo（时长守卫：seek 点须留 ≥100ms 内容防「跳到
+            // 末尾」空播；TIME_UNSET 不出现在 WAV——兜底分支恒真）。失败静默按 0 播，
+            // 跳过绝不阻断朗读
+            if (skipMs > 0) {
+                try {
+                    val d = p.duration
+                    if (d == C.TIME_UNSET || skipMs < d - 100) p.seekTo(skipMs)
+                } catch (_: Exception) {
+                    /* 静默按 0 播 */
+                }
+            }
             p.play()
             started = true
-            // 五十三批热修 开头静音跳过：静音起播，skipMs 后恢复音量（done 后不碰——
-            // 已释放的 player 调 setVolume 会抛；暂停期计时器照走=恢复后起播即有声，
-            // skip 窗只有几百毫秒，无需挂起重挂）
-            if (skipMs > 0) {
-                p.volume = 0f
-                main.postDelayed({
-                    if (done) return@postDelayed
-                    try {
-                        player?.volume = 1f
-                    } catch (_: Exception) {
-                        /* 已释放 */
-                    }
-                }, skipMs)
-            }
         } catch (e: Exception) {
             finish(error = true)
         }
