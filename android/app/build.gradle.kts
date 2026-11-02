@@ -151,8 +151,14 @@ android {
         //   录音实测开头静音（segments va.l）跳，无实测值回落 fixed 档。web 半边
         //   （设置行/下发/录音检测）先部署无害——面板行门控 ≥2.0.20 自隐藏、旧壳
         //   optString 忽略新键。
-        versionCode = 35
-        versionName = "2.0.20"
+        // ⭐五十三批热修 2.0.21 (36)：站主真机实锤 2.0.20 的 seekTo 让插播整个不播
+        //   （MediaRecorder webm seek 不可靠）——跳过实现换**静音起播**（skipMs 后恢复
+        //   音量，零寻址零风险、听感与 seek 等价）；web 侧同批：设置行门控与下发门
+        //   提到 ≥2.0.21（2.0.20 用户升级前强制 off=不触发坏播放）。⭐自更新链按
+        //   versionName 比较（SelfUpdateController ?v= 闸）——必须升名，否则
+        //   2.0.20(35) 用户被「已是最新版本」挡住拿不到修复。
+        versionCode = 36
+        versionName = "2.0.21"
     }
 
     signingConfigs {

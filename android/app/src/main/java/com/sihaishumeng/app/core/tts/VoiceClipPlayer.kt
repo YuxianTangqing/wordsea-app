@@ -41,9 +41,10 @@ class VoiceClipPlayer(
     context: Context,
     url: String,
     private val rate: Float,
-    /** 五十三批 开头静音跳过（毫秒；0=不跳）。READY 后、起播前 seekTo 一次——听书
-     *  插播开头静音掐掉（固定档/自动档由持有方算好传入）；失败静默=按 0 播，不阻断
-     *  朗读（后续异常走既有 onPlayerError 兜底） */
+    /** 五十三批热修 开头静音跳过（毫秒；0=不跳）。实现=**静音起播 skipMs 后恢复音量**：
+     *  不 seek——MediaRecorder 产 webm/opus 的 seek 依赖 Cues/流可寻性，站主真机实锤
+     *  2.0.20 的 seekTo 会让插播整个不播（卡缓冲/误报错误），跳过绝不能毁播放链。
+     *  开头 skipMs 本就是静音，静音放掉听感与 seek 完全等价、零寻址零风险。 */
     private val skipMs: Long,
     private val onDone: () -> Unit,
     private val onError: () -> Unit
@@ -80,15 +81,6 @@ class VoiceClipPlayer(
                         if (playbackState == Player.STATE_READY) {
                             ready = true
                             main.removeCallbacks(prepTimeout)
-                            // 五十三批：开头静音跳过——seek 失败（IllegalSeekPosition 等）静默
-                            // 按 0 播，绝不阻断朗读；暂停窗也先落位（resumeX 起播即已跳过）
-                            if (skipMs > 0) {
-                                try {
-                                    p.seekTo(skipMs)
-                                } catch (e: Exception) {
-                                    Log.w("VoiceClip", "skip seek failed", e)
-                                }
-                            }
                             if (!paused) beginPlay()
                             /* 暂停中保持「已就绪未起播」——resumeX 接管起播（幽灵播放审查修） */
                         } else if (playbackState == Player.STATE_ENDED) {
@@ -129,6 +121,20 @@ class VoiceClipPlayer(
         try {
             p.play()
             started = true
+            // 五十三批热修 开头静音跳过：静音起播，skipMs 后恢复音量（done 后不碰——
+            // 已释放的 player 调 setVolume 会抛；暂停期计时器照走=恢复后起播即有声，
+            // skip 窗只有几百毫秒，无需挂起重挂）
+            if (skipMs > 0) {
+                p.volume = 0f
+                main.postDelayed({
+                    if (done) return@postDelayed
+                    try {
+                        player?.volume = 1f
+                    } catch (_: Exception) {
+                        /* 已释放 */
+                    }
+                }, skipMs)
+            }
         } catch (e: Exception) {
             finish(error = true)
         }
