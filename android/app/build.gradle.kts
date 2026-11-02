@@ -145,8 +145,14 @@ android {
         //   依赖调用方线程纪律）；onPlayerError 错误码三态（IO/解析/解码）Log.w 留证
         //   =换装本身即判定实验。web 半边（B 预检+文案）同批先部署无害（typeof 特征
         //   探测，无桥走原路）。
-        versionCode = 34
-        versionName = "2.0.19"
+        // 五十三批 2.0.20 (35)：听书×段评联动「开头静音跳过」——方式三档 off/fixed/
+        //   auto（web 起播下发+热更，缺省 off=dormant 双向零迁移）：VoiceClipPlayer
+        //   READY 后起播前 seekTo(skipMs)（失败静默按 0 播不阻断朗读）；auto=按每条
+        //   录音实测开头静音（segments va.l）跳，无实测值回落 fixed 档。web 半边
+        //   （设置行/下发/录音检测）先部署无害——面板行门控 ≥2.0.20 自隐藏、旧壳
+        //   optString 忽略新键。
+        versionCode = 35
+        versionName = "2.0.20"
     }
 
     signingConfigs {

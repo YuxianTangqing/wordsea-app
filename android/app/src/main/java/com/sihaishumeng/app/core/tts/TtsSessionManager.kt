@@ -38,6 +38,9 @@ object TtsSessionManager {
 
     /** M362 联动四档（与 web READER_TTS_PARA_VOICE 同源） */
     private val PARA_VOICE_MODES = setOf("off", "before", "after", "replace")
+    // 五十三批 开头静音跳过方式白名单（缺省 off=dormant 家法——旧页面×新 APK 不
+    // 自作主张；用户可感默认档由 web 起播显式下发承担）
+    private val VOICE_SKIP_MODES = setOf("off", "fixed", "auto")
 
     // ── 会话态（全部主线程读写） ──
     private var state = "idle" // idle | preparing | playing | paused
@@ -55,6 +58,10 @@ object TtsSessionManager {
     // M362 听书×段评联动：off|before|after|replace（缺省 off=dormant 家法——旧页面×
     // 新 APK 不自作主张替换正文朗读；用户可感默认档由 web 起播显式下发承担）
     private var paraVoice = "off"
+    // 五十三批 开头静音跳过：off|fixed|auto（缺省 off 同上 dormant 家法）；
+    // voiceSkipMs=fixed 档毫秒，auto 档对无实测值（voiceLeadMs=null）录音的回落值
+    private var voiceSkipMode = "off"
+    private var voiceSkipMs = 0L
 
     // 当前章数据
     private class Para(
@@ -62,7 +69,9 @@ object TtsSessionManager {
         val hash: String,
         val skip: Boolean,
         val voiceKey: String? = null, // M362 该段最热语音（segments tts[].va.k；旧服务端无 va=null）
-        val voiceMs: Long = 0L
+        val voiceMs: Long = 0L,
+        // 五十三批 开头静音实测毫秒（va.l；null=未检测/存量——「自动掐头」档回落固定档）
+        val voiceLeadMs: Long? = null
     )
     private var chapterTitle = ""
     private var paras: List<Para> = emptyList()
@@ -151,6 +160,10 @@ object TtsSessionManager {
         // M362 联动四档白名单（缺省 off；脏值回落 off）
         val pv = o.optString("paraVoice", "off")
         paraVoice = if (pv in PARA_VOICE_MODES) pv else "off"
+        // 五十三批 开头静音跳过（缺省 off；脏值回落 off；ms 钳 0..3000——与 web 检测 cap 同档）
+        val vsm = o.optString("voiceSkipMode", "off")
+        voiceSkipMode = if (vsm in VOICE_SKIP_MODES) vsm else "off"
+        voiceSkipMs = o.optLong("voiceSkipMs", 0L).coerceIn(0L, 3000L)
         toc = (0 until tocArr.length()).map { tocArr.optInt(it) }
         contentToken = token
         startOrderIndex = o.optInt("orderIndex", toc.first())
@@ -199,6 +212,12 @@ object TtsSessionManager {
             "setRate" -> rate = a.optDouble("v", 1.0).toFloat()
             "setSleep" -> applySleep(a.optString("v", "off"))
             "setParaVoice" -> applyParaVoice(a.optString("v", "off")) // M362 联动档热更
+            "setVoiceSkip" -> {
+                // 五十三批 跳过设置热更（下一段起播现取——VoiceClipPlayer 每条新建）
+                val sm = a.optString("mode", "off")
+                if (sm in VOICE_SKIP_MODES) voiceSkipMode = sm
+                voiceSkipMs = a.optLong("ms", voiceSkipMs).coerceIn(0L, 3000L)
+            }
             "next" -> jumpChapter(1)
             "prev" -> jumpChapter(-1)
         }
@@ -355,7 +374,10 @@ object TtsSessionManager {
                                 // 双向部署安全；预取章同载）
                                 val va = p.optJSONObject("va")
                                 val vk = va?.optString("k")?.takeIf { it.isNotEmpty() }
-                                list.add(Para(t, p.optString("h"), br || t.isEmpty(), vk, va?.optLong("d") ?: 0L))
+                                // 五十三批：va.l=开头静音实测（缺失/null=未检测——JSONObject
+                                // 无键时 optLong 回落 0 会误读成「无静音」，has 判键区分）
+                                val vl = va?.let { if (it.has("l") && !it.isNull("l")) it.optLong("l") else null }
+                                list.add(Para(t, p.optString("h"), br || t.isEmpty(), vk, va?.optLong("d") ?: 0L, vl))
                             }
                             if (tocPos >= 0 && toc[tocPos] == orderIndex) {
                                 chapterTitle = d.optString("title")
@@ -480,7 +502,8 @@ object TtsSessionManager {
                 onDone = { moveToNextPara() },
                 onError = { moveToNextPara() },
                 voiceKey = cur.voiceKey,
-                voiceMs = cur.voiceMs
+                voiceMs = cur.voiceMs,
+                voiceLeadMs = cur.voiceLeadMs // 五十三批 开头静音实测
             )
             return
         }
@@ -514,13 +537,15 @@ object TtsSessionManager {
                             if (chunks.isNotEmpty()) speakCurrentChunk() else moveToNextPara()
                         },
                         voiceKey = p.voiceKey,
-                        voiceMs = p.voiceMs
+                        voiceMs = p.voiceMs,
+                        voiceLeadMs = p.voiceLeadMs // 五十三批 开头静音实测
                     )
                     paraVoice == "before" && hasVoice -> playVoice(
                         onDone = { speakCurrentChunk() },
                         onError = { speakCurrentChunk() },
                         voiceKey = p.voiceKey,
-                        voiceMs = p.voiceMs
+                        voiceMs = p.voiceMs,
+                        voiceLeadMs = p.voiceLeadMs // 五十三批 开头静音实测
                     )
                     else -> speakCurrentChunk()
                 }
@@ -537,7 +562,13 @@ object TtsSessionManager {
      *  ⭐审查修（睡眠复活+暂停越权同根）：完成/失败续体统一 state 门——checkSleepDeadline
      *  收摊（idle）或暂停（paused）后绝不执行续体；暂停场景由 resume() 三路分流接管
      *  （voiceStage 已复位 text：before=读文字块、after/replace=段推进，原位语义保持）。 */
-    private fun playVoice(onDone: () -> Unit, onError: () -> Unit, voiceKey: String?, voiceMs: Long) {
+    private fun playVoice(
+        onDone: () -> Unit,
+        onError: () -> Unit,
+        voiceKey: String?,
+        voiceMs: Long,
+        voiceLeadMs: Long? = null // 五十三批 开头静音实测（null=未检测/存量）
+    ) {
         val key = voiceKey ?: return onError()
         curUtterId = null
         watchdogRunnables++
@@ -548,12 +579,19 @@ object TtsSessionManager {
             put("orderIndex", toc[tocPos])
             put("paraIndex", paraPos)
         }
+        // 五十三批 开头静音跳过：off=0 / fixed=固定秒数 / auto=实测（无实测值回落固定档）
+        val skipMs = when (voiceSkipMode) {
+            "fixed" -> voiceSkipMs
+            "auto" -> voiceLeadMs ?: voiceSkipMs
+            else -> 0L
+        }
         voice = VoiceClipPlayer(
             // 五十一批换装 ExoPlayer 需 Context（appContext 会话起播必置；缺失=构造
             // 不了，按播放失败回落续读，不阻断朗读）
             context = appContext ?: return onError(),
             url = SiteConfig.SITE_URL + "/uploads/voice/" + key,
             rate = rate,
+            skipMs = skipMs, // 五十三批 开头静音跳过
             onDone = {
                 if (ticket == voiceTicket && voiceStage == "voice") {
                     voiceStage = "text"

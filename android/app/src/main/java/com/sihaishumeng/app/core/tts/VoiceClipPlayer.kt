@@ -41,6 +41,10 @@ class VoiceClipPlayer(
     context: Context,
     url: String,
     private val rate: Float,
+    /** 五十三批 开头静音跳过（毫秒；0=不跳）。READY 后、起播前 seekTo 一次——听书
+     *  插播开头静音掐掉（固定档/自动档由持有方算好传入）；失败静默=按 0 播，不阻断
+     *  朗读（后续异常走既有 onPlayerError 兜底） */
+    private val skipMs: Long,
     private val onDone: () -> Unit,
     private val onError: () -> Unit
 ) {
@@ -76,6 +80,15 @@ class VoiceClipPlayer(
                         if (playbackState == Player.STATE_READY) {
                             ready = true
                             main.removeCallbacks(prepTimeout)
+                            // 五十三批：开头静音跳过——seek 失败（IllegalSeekPosition 等）静默
+                            // 按 0 播，绝不阻断朗读；暂停窗也先落位（resumeX 起播即已跳过）
+                            if (skipMs > 0) {
+                                try {
+                                    p.seekTo(skipMs)
+                                } catch (e: Exception) {
+                                    Log.w("VoiceClip", "skip seek failed", e)
+                                }
+                            }
                             if (!paused) beginPlay()
                             /* 暂停中保持「已就绪未起播」——resumeX 接管起播（幽灵播放审查修） */
                         } else if (playbackState == Player.STATE_ENDED) {
