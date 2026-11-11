@@ -15,9 +15,10 @@ import com.bilibili.lib.accountoauth.OAuthManager
  * 空=失败/取消（msg 带B站侧错误信息，含后台签名/包名配置错——真机拉起段的
  * 诊断定位器）。会话收口必须 finish()（SDK 静态引用持有宿主 Activity，不清=泄漏）。
  *
- * client_id=移动应用 7a3a27dff0d04936（SiteConfig 公开标识；Secret 只在服务器
- * .env）。跨端同号靠服务端 union_id 桥（resolveBilibiliIdentity 三段）——SDK 出包
- * gate 在 union_id 探针复验通过之后（未批走完授权=openid 键裂号）。
+ * client_id=网页应用 bd4c6315d7f14d99（批⑧R 安卓平台并入后同应用双平台；SiteConfig
+ * 公开标识，Secret 只在服务器 .env）。同应用=同 openid：服务端 resolveBilibiliIdentity
+ * 按 openid 键直连存量账号（union_id 缺席回落链），零桥接零裂号——旧移动应用
+ * client_id 7a3a27dff0d04936 待验收后从平台删除。
  */
 object BiliSdkAuth {
 

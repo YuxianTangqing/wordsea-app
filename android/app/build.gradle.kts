@@ -177,8 +177,12 @@ android {
         //   系统框+阻塞等待（≤120s），拒绝/超时返 false+startError='perm'；桥加
         //   micRecStartError/micRecOpenSettings（「去设置」直达授权页）。⭐自更新链按
         //   versionName 比较必须升名。
-        versionCode = 39
-        versionName = "2.0.24"
+        // 批⑧R 2.0.25 (40)：B站安卓平台并入网页应用（同 client_id 双平台）——SDK 登录
+        //   openid 与网页流一致=免 union_id 桥。内测直装批：转正=站主真机同号实测绿后
+        //   常规三件套窗（site.ts 2.0.25+三套版本锚+APK 双名）。⭐自更新链按
+        //   versionName 比较必须升名。
+        versionCode = 40
+        versionName = "2.0.25"
     }
 
     signingConfigs {

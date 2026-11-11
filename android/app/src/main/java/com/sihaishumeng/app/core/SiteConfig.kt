@@ -23,10 +23,13 @@ object SiteConfig {
     // 批③ 四家登录 appid（公开标识可硬编码——AppKey/Secret 只进 web 仓服务器 .env，
     // 本仓零密钥铁律）。B站批③~批⑦ 零 appid（网页流 client_id 在服务端）；批⑧ SDK
     // 化起移动应用 appid 进壳（公开标识；App Secret 仍只进服务器 .env）。
+    // 批⑧R（2026-11-11）：B站安卓平台并入已过审网页应用（同 client_id 双平台）——
+    // 同应用=同 openid，SDK 登录按 openid 直连存量账号，union_id 工单不再阻塞。
+    // 旧移动应用 7a3a27dff0d04936 待转正验收后删除（回退=此值+服务器 env 清空）。
     const val WECHAT_APP_ID = "wxd3b4d2acfec510e2"
     const val QQ_APP_ID = "1905824730"
     const val ALIPAY_APP_ID = "2021007110603730"
-    const val BILI_CLIENT_ID = "7a3a27dff0d04936"
+    const val BILI_CLIENT_ID = "bd4c6315d7f14d99"
     // 支付宝 SDK 回跳 scheme（批⑤R）：传给 OpenAuthTask.execute 首参，支付宝 App 授权完
     // 按它拼隐式 intent 回跳到 manifest 里 AlipayResultActivity 的同 scheme filter（原生
     // 钱包与 H5 中转两链共用）。⚠️ 必须**独立于** MainActivity 的 sihaishumeng——两个
