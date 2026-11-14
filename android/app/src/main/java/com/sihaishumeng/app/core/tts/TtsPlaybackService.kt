@@ -161,12 +161,24 @@ class TtsPlaybackService : Service() {
         return builder.build()
     }
 
-    private fun actionPending(action: String, code: Int): PendingIntent =
-        PendingIntent.getForegroundService(
-            this, code,
-            Intent(this, TtsPlaybackService::class.java).setAction(action),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+    private fun actionPending(action: String, code: Int): PendingIntent {
+        // M376：getForegroundService 是 API 26 新增——minSdk 24（安卓 7.x）点听书拉到
+        // 此处 NoSuchMethodError 主线程必崩（「停止」键恒在故每点必崩）。26 以下回落
+        // getService（FLAG_IMMUTABLE 需 API 23+，minSdk 24 安全）。
+        val intent = Intent(this, TtsPlaybackService::class.java).setAction(action)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            PendingIntent.getForegroundService(
+                this, code, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            PendingIntent.getService(
+                this, code, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+    }
 
     // ── MediaSession（耳机线控/MEDIA_BUTTON 自动映射；锁屏媒体卡读活跃会话） ──
 

@@ -181,8 +181,12 @@ android {
         //   openid 与网页流一致=免 union_id 桥。内测直装批：转正=站主真机同号实测绿后
         //   常规三件套窗（site.ts 2.0.25+三套版本锚+APK 双名）。⭐自更新链按
         //   versionName 比较必须升名。
-        versionCode = 40
-        versionName = "2.0.25"
+        // M376 2.0.26 (41)：听书闪退全量防御——安卓 7.x 点听书必崩根治（通知按钮
+        //   getForegroundService API26 越级调用回落 getService）+OEM 引擎三裸调防护+
+        //   切块代理对意识+WebChannel 注入防护/解绑+崩溃兜底（落盘+启动弹窗反馈进
+        //   站内反馈通道）。⭐同上：自更新链按 versionName 比较必须升名。
+        versionCode = 41
+        versionName = "2.0.26"
     }
 
     signingConfigs {

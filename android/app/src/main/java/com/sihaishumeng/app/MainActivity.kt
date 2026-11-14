@@ -34,10 +34,12 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import com.sihaishumeng.app.core.CrashHandler
 import com.sihaishumeng.app.core.SiteConfig
 import com.sihaishumeng.app.core.bridge.MicRecHost
 import com.sihaishumeng.app.core.bridge.ShellBridge
@@ -417,6 +419,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashHandler.install(this) // M376：全局崩溃兜底（落盘）；必须最先挂
         router = WebViewRouter(this)
         // 批⑨ 逐块旧协议适配（进程级一次）：web 侧自铸 id（c${n}/one${n} 前缀）的
         // done/error 回投 __wsTtsEvent——与旧 TtsController 注入串逐字一致（契约冻结）；
@@ -453,6 +456,7 @@ class MainActivity : AppCompatActivity() {
         attachWebView()
         updateUi()
         trimCacheIfNeeded()
+        maybeOfferCrashReport() // M376：启动扫描崩溃日志→弹窗询问反馈（登录会话在场才弹）
     }
 
     /** 启动时后台量 WebView 数据足迹（cacheDir+app_webview），超阈清 HTTP 缓存。
@@ -786,8 +790,40 @@ class MainActivity : AppCompatActivity() {
         // 批⑨：TTS 引擎不再随 Activity 关停（TtsEngineHolder=进程级）——听书会话在
         // 前台服务里读，用户退出 Activity 进程存活时朗读继续（引擎经 applicationContext
         // 创建本就与 Activity 无绑定）
+        WebChannel.bind(null) // M376：解绑封死「destroy 后 GC 前弱引用仍注入 JS」崩面
         webView.destroy()
         super.onDestroy()
+    }
+
+    // ── M376 崩溃反馈弹窗（每次进程启动至多一次；无登录会话静默标记不弹） ──
+
+    private var crashDialogShown = false
+
+    private fun maybeOfferCrashReport() {
+        if (crashDialogShown) return
+        val pending = CrashHandler.pendingCrashes(this).firstOrNull() ?: return
+        val cookie = CookieManager.getInstance().getCookie(SiteConfig.SITE_URL) ?: ""
+        if (!cookie.contains("better-auth.session_token")) {
+            // 无登录会话：发送必 401——静默标记不再弹（文件保留可手动导出）
+            CrashHandler.markAsked(pending)
+            return
+        }
+        crashDialogShown = true
+        AlertDialog.Builder(this)
+            .setTitle("崩溃反馈")
+            .setMessage("上次使用 APP 时遇到了崩溃，是否把崩溃日志发送给我们帮助修复？")
+            .setPositiveButton("发送") { _, _ ->
+                CrashHandler.send(pending) { ok ->
+                    Toast.makeText(
+                        this,
+                        if (ok) "已发送，感谢反馈" else "发送失败，日志已保留",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            .setNegativeButton("忽略") { _, _ -> CrashHandler.markAsked(pending) }
+            .setCancelable(false)
+            .show()
     }
 
     // ── 可见性推导（= 壳 render 的唯一出口） ──

@@ -860,8 +860,14 @@ object TtsSessionManager {
                 if (at > cut) cut = at
             }
             val at = if (cut > limit * 0.5) cut + 1 else limit
-            out.add(rest.substring(0, at))
-            rest = rest.substring(at)
+            // M376：边界若切在代理对中间（emoji 等），把后半项留给下块——部分引擎对
+            // 孤立代理项（非法 UTF-16）抛 IllegalArgumentException 甚至原生崩
+            var safeAt = at
+            while (safeAt > 0 && safeAt < rest.length &&
+                Character.isHighSurrogate(rest[safeAt - 1]) && Character.isLowSurrogate(rest[safeAt])
+            ) safeAt++
+            out.add(rest.substring(0, safeAt))
+            rest = rest.substring(safeAt)
         }
         if (rest.isNotEmpty()) out.add(rest)
         return out

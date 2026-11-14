@@ -162,7 +162,8 @@ object TtsEngineHolder {
         val vid = currentVoiceId
         if (vid != null) {
             val v = findVoice(eng, vid) // 批⑨R5 复合键精确匹配（name-only 回落兼容存量）
-            if (v != null && eng.setVoice(v) == TextToSpeech.SUCCESS) return true
+            // M376：setVoice 裸调在 OEM 引擎（讯飞/华为/小米变体）上可能抛异常——包住防崩
+            if (v != null && runCatching { eng.setVoice(v) }.getOrDefault(TextToSpeech.ERROR) == TextToSpeech.SUCCESS) return true
             // 音色失效（换引擎/卸语音数据）：回落语言检查，web 侧 ttsSetVoice 失败提示重选
         }
         val r = runCatching { eng.setLanguage(Locale.SIMPLIFIED_CHINESE) }.getOrDefault(TextToSpeech.LANG_NOT_SUPPORTED)
@@ -364,9 +365,12 @@ object TtsEngineHolder {
         val gen = ++speakGen
         main.post {
             val eng = engine ?: return@post
-            eng.setSpeechRate(rate)
+            // M376：引擎三裸调防护——OEM 引擎（讯飞/华为/小米变体）对死引擎重入/异常
+            // 码点会抛异常=主线程闪退；吞掉防崩。speak 失败后的推进由既有三保险接管
+            // （isSpeaking 轮询/estMs 估算补发 done/看门狗 30s 重 init），语义不变。
+            runCatching { eng.setSpeechRate(rate) }
             runCatching { eng.setPitch(currentPitch) } // 批⑨R8 声线档（同队列防竞态）
-            eng.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)
+            runCatching { eng.speak(text, TextToSpeech.QUEUE_FLUSH, null, id) }
             // 批⑨R2 完成探测双保险：部分引擎（站主真机兜底引擎实录）onDone 欠奉——
             // 推进死=看门狗 30s 重读循环「不断重复一段」。speak 后轮询 isSpeaking，
             // 连续两轮静默=补发 done（消费方按 utteranceId 核对，与真 onDone 幂等；

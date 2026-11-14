@@ -25,17 +25,20 @@ object WebChannel {
         ref = WeakReference(webView)
     }
 
-    /** 注入 JS（主线程；无有效 WebView=静默丢弃）。返回是否送达。 */
+    /** 注入 JS（主线程；无有效 WebView=静默丢弃）。返回是否送达。
+     *  M376：两处 evaluateJavascript 包 runCatching——onDestroy 后弱引用在 GC 前
+     *  仍会返回已 destroy 的 WebView，部分内核版本对销毁后注入抛 IllegalStateException
+     *  （主线程崩）。配合 MainActivity.onDestroy 的 bind(null) 双保险。 */
     fun evalJs(js: String): Boolean {
         val wv = ref.get() ?: return false
         if (main.looper === Looper.myLooper()) {
-            wv.evaluateJavascript(js, null)
-            return true
+            return runCatching { wv.evaluateJavascript(js, null) }.isSuccess
         }
         var delivered = true
         main.post {
             val cur = ref.get()
-            if (cur != null) cur.evaluateJavascript(js, null) else delivered = false
+            if (cur != null) runCatching { cur.evaluateJavascript(js, null) }
+            else delivered = false
         }
         return delivered
     }
