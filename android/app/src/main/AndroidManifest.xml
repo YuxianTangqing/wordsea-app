@@ -136,7 +136,7 @@
         <!-- 批⑨ 听书前台服务：纯宿主（通知栏+MediaSession+音频焦点；状态机在
              TtsSessionManager 进程单例）。⚠️ 不得加 android:process——跨进程会打断
              cookie 桥、WebView 弱引用与进程单例（对抗审查 A6）。exported=false：通知
-             按钮走 PendingIntent.getForegroundService 不需要导出。 -->
+             按钮走 PendingIntent.getService（M377 拆除 fgRequired 超时雷）不需要导出。 -->
         <service
             android:name=".core.tts.TtsPlaybackService"
             android:exported="false"

@@ -185,8 +185,13 @@ android {
         //   getForegroundService API26 越级调用回落 getService）+OEM 引擎三裸调防护+
         //   切块代理对意识+WebChannel 注入防护/解绑+崩溃兜底（落盘+启动弹窗反馈进
         //   站内反馈通道）。⭐同上：自更新链按 versionName 比较必须升名。
-        versionCode = 41
-        versionName = "2.0.26"
+        // M377 2.0.27 (42)：听书暂停失效+概率闪退全量防御——通知四键改 getService
+        //   （拆除 fgRequired 10s 超时雷：2.0.26 首份崩溃上报=OPPO ColorOS 冻结拖窗
+        //   RemoteServiceException 实锤）+onCreate 即进前台（ARGS 迟到兜底）+
+        //   preparing 期暂停=取消启动（会话代际令牌防迟到回调复活）+冷拉起空会话收摊。
+        //   ⭐同上：自更新链按 versionName 比较必须升名。
+        versionCode = 42
+        versionName = "2.0.27"
     }
 
     signingConfigs {

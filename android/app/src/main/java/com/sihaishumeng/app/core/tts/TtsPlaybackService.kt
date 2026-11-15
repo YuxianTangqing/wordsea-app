@@ -25,12 +25,15 @@ import com.sihaishumeng.app.R
  * 播放）+PARTIAL WakeLock（兜块间合成间隙的 onDone 不被挂起）。
  *
  * 对抗审查 A1：状态机全在 TtsSessionManager（进程单例）——本服务零 Intent 通信，
- * 通知按钮经 PendingIntent.getForegroundService（豁免路径）回到 onStartCommand 转
- * manager.control()；控制面永不 startService。
+ * 通知按钮经 PendingIntent.getService（M377：通知只在服务存活期存在，普通拉起即可
+ * 送达；getForegroundService 每点一次武装 fgRequired 定时器=OPPO ColorOS 冻结拖窗
+ * 必崩的雷，2.0.26 首份崩溃上报实锤）回到 onStartCommand 转 manager.control()；
+ * 控制面永不 startService。
  *
  * 生命周期铁律（A6）：onStartCommand **首行** ServiceCompat.startForeground（先占位
- * 通知再干活，防秒级窗口 RemoteServiceException）；START_NOT_STICKY（无上下文自拉起
- * 只会哑读）；onTaskRemoved（用户划任务）继续读=音乐 App 通例。
+ * 通知再干活，防秒级窗口 RemoteServiceException）；M377 起 onCreate 建通道后也立即
+ * 进前台（ARGS 投递被 ColorOS 冻结/主线程忙拖迟时，CREATE 时刻已满足窗口）；
+ * START_NOT_STICKY（无上下文自拉起只会哑读）；onTaskRemoved（用户划任务）继续读=音乐 App 通例。
  */
 class TtsPlaybackService : Service() {
 
@@ -72,6 +75,13 @@ class TtsPlaybackService : Service() {
                 NotificationChannel(CHANNEL_ID, "听书播放", NotificationManager.IMPORTANCE_LOW)
             )
         }
+        // M377：onCreate 即进前台（占位通知）——onStartCommand 首行调用的兜底：ARGS 投递
+        // 被 OPPO ColorOS 冻结/主线程忙拖过窗口时，CREATE 时刻已满足 fgRequired，超时崩
+        // （RemoteServiceException）不再可能；onStartCommand 的再次调用=幂等刷新真状态。
+        ServiceCompat.startForeground(
+            this, NOTI_ID, buildNotification(),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else 0
+        )
         audioManager = getSystemService(AudioManager::class.java)
         TtsSessionManager.attachService(this)
         requestFocus()
@@ -93,6 +103,10 @@ class TtsPlaybackService : Service() {
             ACTION_STOP -> TtsSessionManager.control("""{"a":"stop"}""")
         }
         onSessionChanged() // 占位→真状态
+        // M377：动作分发后若仍无活动会话（冷拉起残留通知边角）——防空转前台服务挂
+        // 「启动中」赖着不走，立即收摊。null-action 起播路径不受影响（start() 先置
+        // preparing 再拉服务，binder IPC 保序）。
+        if (intent?.action != null && !TtsSessionManager.active()) stopSelfSafe()
         return START_NOT_STICKY
     }
 
@@ -162,22 +176,18 @@ class TtsPlaybackService : Service() {
     }
 
     private fun actionPending(action: String, code: Int): PendingIntent {
-        // M376：getForegroundService 是 API 26 新增——minSdk 24（安卓 7.x）点听书拉到
-        // 此处 NoSuchMethodError 主线程必崩（「停止」键恒在故每点必崩）。26 以下回落
-        // getService（FLAG_IMMUTABLE 需 API 23+，minSdk 24 安全）。
+        // M377：通知四键改 getService——通知只在服务存活期存在（唯一张贴点=本服务的
+        // startForeground/onSessionChanged），普通拉起即可送达。getForegroundService
+        // 每点一次都武装系统 ~10s fgRequired 定时器（服务必须窗口内 startForeground
+        // 否则 RemoteServiceException 主线程崩）——OPPO ColorOS 11 息屏冻结/后台启动
+        // 限制拖过窗口=2.0.26 首份崩溃上报实锤（Android 11/OPPO，深夜点暂停）。
+        // 通知点按属系统豁免路径，8+/12+ 后台 startService 均合法。getService 全
+        // API 存在——M376 的 API26 守卫随此退役（安卓 7.x 一并根治，无越级调用）。
         val intent = Intent(this, TtsPlaybackService::class.java).setAction(action)
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            PendingIntent.getForegroundService(
-                this, code, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            PendingIntent.getService(
-                this, code, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-        }
+        return PendingIntent.getService(
+            this, code, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     // ── MediaSession（耳机线控/MEDIA_BUTTON 自动映射；锁屏媒体卡读活跃会话） ──

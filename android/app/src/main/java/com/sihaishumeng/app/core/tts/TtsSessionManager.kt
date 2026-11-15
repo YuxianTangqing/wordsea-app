@@ -91,6 +91,10 @@ object TtsSessionManager {
     private var watchdogFails = 0
     private var speakAt = 0L
 
+    // M377 会话代际令牌：start() 与取消启动（preparing 期暂停）自增——在途引擎就绪/
+    // 拉章回调按代作废，防旧会话迟到回调复活/污染新会话（M362 voiceTicket 同款）
+    private var sessionGen = 0
+
     // M362 段评语音插播态
     private var voice: VoiceClipPlayer? = null
     private var voiceLocalFile: String? = null // 五十五批 剪裁临时文件（急停/换代清场用）
@@ -172,6 +176,7 @@ object TtsSessionManager {
         contentToken = token
         startOrderIndex = o.optInt("orderIndex", toc.first())
         state = "preparing"
+        val gen = ++sessionGen // M377 代际捕获——取消启动/新会话顶代作废在途回调
         stopVoicePlayback() // ⭐审查修：会话重入（「朗读本段」重起播）先止旧语音——防旧评论外放+迟到回调污染新会话
         resetChapterRuntime()
         val voiceId = o.optString("voiceId")
@@ -183,6 +188,7 @@ object TtsSessionManager {
         // 「正在启动语音」，引擎就绪后由 onSessionChanged 刷新真状态。
         TtsPlaybackService.start(context)
         Engine.ensure(appContext!!) { ok, reason ->
+            if (gen != sessionGen) return@ensure // M377：取消启动/新会话顶代——迟到就绪回调作废
             if (!ok) {
                 emit("no-voice") { put("message", reason) }
                 state = "idle"
@@ -266,6 +272,19 @@ object TtsSessionManager {
             Engine.stop()
             emitPaused()
             service?.onSessionChanged()
+        } else if (state == "preparing") {
+            // M377：起播窗口内（拉章/引擎初始化 1~20s）的暂停=取消启动——旧行为静默
+            // 空转=「点听书想立刻停却停不住，声音随后照常响起」（用户报障「暂停失效」
+            // 洞二）。干净收摊并回 cancelled 事件让 web 复位 UI。
+            sessionGen++ // 代际作废在途 ensure/拉章回调（防取消后复活）
+            state = "idle"
+            stopVoicePlayback() // M362 停机五路之一：取消启动同收摊
+            resetChapterRuntime()
+            nextChapterCache = null
+            Engine.stop()
+            emit("cancelled")
+            service?.onSessionChanged()
+            service?.stopSelfSafe()
         }
     }
 
@@ -345,6 +364,7 @@ object TtsSessionManager {
         tocPos = idx
         paraPos = 0
         state = "preparing"
+        val gen = sessionGen // M377 代际捕获：拉章回调按代+状态门作废（取消/停止/新会话后迟到数据不复活）
         val cached = nextChapterCache
         if (cached != null && cached.first == orderIndex) {
             nextChapterCache = null
@@ -353,6 +373,7 @@ object TtsSessionManager {
         }
         fetchChapter(orderIndex) { ok ->
             if (!ok) return@fetchChapter // 失败路径在 fetch 内已处理
+            if (gen != sessionGen || state == "idle") return@fetchChapter // M377 迟到回调作废
             beginChapter(chapterTitle, paras, paraStart)
         }
     }
@@ -365,6 +386,10 @@ object TtsSessionManager {
             ApiClient.getJson(segmentsPath(novelId, orderIndex, contentToken)) { code, json ->
                 main.post {
                     fetchingChapter = false
+                    // M377：拉章期间被停止/取消（state=idle）——迟到响应不得复活会话
+                    // （「点停止后声音又响」存量隐雷同根：旧码拉章期点停止后响应回来会
+                    // 直接 beginChapter 复活），丢弃；flag 已复位新会话可再拉
+                    if (state == "idle") return@post
                     when {
                         code == 200 && json?.optInt("code") == 0 -> {
                             val d = json.optJSONObject("data") ?: run { failChapter(); return@post }
