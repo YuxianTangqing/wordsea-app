@@ -190,8 +190,16 @@ android {
         //   RemoteServiceException 实锤）+onCreate 即进前台（ARGS 迟到兜底）+
         //   preparing 期暂停=取消启动（会话代际令牌防迟到回调复活）+冷拉起空会话收摊。
         //   ⭐同上：自更新链按 versionName 比较必须升名。
-        versionCode = 42
-        versionName = "2.0.27"
+        // M378 2.0.28 (43)：暂停失效+通知崩溃根治——①compact 下标按键数自适应+会话
+        //   （MediaSession+PlaybackState）先于首个张贴（2.0.27 vivo/API36 崩溃=2 键
+        //   窗口硬编码下标 2 越界+无 token 张贴实锤）；②start 即 emit("start")（web
+        //   active 门立真=preparing 窗页内暂停直达取消分支）；③preparing 期通知钮=
+        //   暂停（取消启动，原显示播放=resume 空转）；④maybePrefetch 起播窗守卫（防
+        //   垃圾拉章吞真拉章卡死）；⑤resume 裁剪下载窗分支（防双声道+跳段）；⑥
+        //   stateJson preparing 快照+无条件冷拉起收摊（防僵尸通知）。
+        //   ⭐同上：自更新链按 versionName 比较必须升名。
+        versionCode = 43
+        versionName = "2.0.28"
     }
 
     signingConfigs {

@@ -32,7 +32,9 @@ import com.sihaishumeng.app.R
  *
  * 生命周期铁律（A6）：onStartCommand **首行** ServiceCompat.startForeground（先占位
  * 通知再干活，防秒级窗口 RemoteServiceException）；M377 起 onCreate 建通道后也立即
- * 进前台（ARGS 投递被 ColorOS 冻结/主线程忙拖迟时，CREATE 时刻已满足窗口）；
+ * 进前台（ARGS 投递被 ColorOS 冻结/主线程忙拖迟时，CREATE 时刻已满足窗口）；M378
+ * 起会话（MediaSession+PlaybackState）先于首个张贴、compact 下标按键数自适应（
+ * 2.0.27 vivo/API36 崩溃=2 键窗口硬编码下标 2 越界+无 token 张贴）；
  * START_NOT_STICKY（无上下文自拉起只会哑读）；onTaskRemoved（用户划任务）继续读=音乐 App 通例。
  */
 class TtsPlaybackService : Service() {
@@ -75,6 +77,12 @@ class TtsPlaybackService : Service() {
                 NotificationChannel(CHANNEL_ID, "听书播放", NotificationManager.IMPORTANCE_LOW)
             )
         }
+        // M378：会话与回放态先于首个前台通知就位——MediaStyle 带 token+PlaybackState
+        // 张贴（Android 13+ 对会话不活跃的 MediaStyle 用 minimal 模板重渲染，compact
+        // 区最多 1 键、下标越界同样经 RemoteServiceException 崩——vivo/API36 上报的
+        // 第二触发面；此前 setupMediaSession 在张贴之后=无 token 张贴）。
+        setupMediaSession()
+        syncMediaSession()
         // M377：onCreate 即进前台（占位通知）——onStartCommand 首行调用的兜底：ARGS 投递
         // 被 OPPO ColorOS 冻结/主线程忙拖过窗口时，CREATE 时刻已满足 fgRequired，超时崩
         // （RemoteServiceException）不再可能；onStartCommand 的再次调用=幂等刷新真状态。
@@ -86,7 +94,6 @@ class TtsPlaybackService : Service() {
         TtsSessionManager.attachService(this)
         requestFocus()
         acquireWakeLock()
-        setupMediaSession()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -103,10 +110,12 @@ class TtsPlaybackService : Service() {
             ACTION_STOP -> TtsSessionManager.control("""{"a":"stop"}""")
         }
         onSessionChanged() // 占位→真状态
-        // M377：动作分发后若仍无活动会话（冷拉起残留通知边角）——防空转前台服务挂
-        // 「启动中」赖着不走，立即收摊。null-action 起播路径不受影响（start() 先置
-        // preparing 再拉服务，binder IPC 保序）。
-        if (intent?.action != null && !TtsSessionManager.active()) stopSelfSafe()
+        // M378：无条件收摊——原门 intent?.action != null 拦不住「取消先于服务创建」
+        // 路径（起播后立刻暂停时 service 尚未创建、preparing 取消分支的 stopSelfSafe
+        // 空转，服务随后 null-action 照常拉起=state idle 的僵尸通知永不自清）。
+        // null-action 起播路径恒 active（start() 先置 preparing 再拉服务，binder IPC
+        // 保序——类头注释已论证），无副作用。
+        if (!TtsSessionManager.active()) stopSelfSafe()
         return START_NOT_STICKY
     }
 
@@ -144,6 +153,7 @@ class TtsPlaybackService : Service() {
     private fun buildNotification(): Notification {
         val mgr = TtsSessionManager
         val playing = mgr.playing()
+        val preparing = mgr.preparingForUi() // M378：起播窗口内按钮=暂停（取消启动）
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
         } else {
@@ -158,18 +168,40 @@ class TtsPlaybackService : Service() {
             .setContentTitle(mgr.bookTitleForUi())
             .setContentText(
                 (if (mgr.chapterTitleForUi().isNotEmpty()) "「${mgr.chapterTitleForUi()}」" else "") +
-                    if (playing) " · 正在朗读" else if (mgr.activeForUi()) " · 已暂停" else " · 启动中"
+                    when {
+                        playing -> " · 正在朗读"
+                        preparing -> " · 启动中" // M378：preparing 优先（原走 activeForUi 显示「已暂停」与按钮矛盾）
+                        mgr.activeForUi() -> " · 已暂停"
+                        else -> " · 启动中"
+                    }
             )
             .setContentIntent(contentIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
-        if (mgr.hasPrevForUi()) builder.addAction(0, "上一章", actionPending(ACTION_PREV, 1))
-        builder.addAction(0, if (playing) "暂停" else "播放", actionPending(if (playing) ACTION_PAUSE else ACTION_RESUME, 2))
-        if (mgr.hasNextForUi()) builder.addAction(0, "下一章", actionPending(ACTION_NEXT, 3))
+        // M378：先收集动作数再取 compact 下标——键数是条件渲染的（上/下章仅章位有效时
+        // 加；tocPos==-1 的 preparing/收摊窗只有 2 键），硬编码 (0,1,2) 在 2 键时下标
+        // 越界=Android 15/16 严格校验下 RemoteServiceException 崩（2.0.27 vivo/API36
+        // 上报「setShowActionsInCompactView: action 2 out of bounds (max 1)」实锤）。
+        var actionCount = 0
+        if (mgr.hasPrevForUi()) {
+            builder.addAction(0, "上一章", actionPending(ACTION_PREV, 1))
+            actionCount++
+        }
+        builder.addAction(
+            0, if (playing || preparing) "暂停" else "播放",
+            actionPending(if (playing || preparing) ACTION_PAUSE else ACTION_RESUME, 2)
+        )
+        actionCount++
+        if (mgr.hasNextForUi()) {
+            builder.addAction(0, "下一章", actionPending(ACTION_NEXT, 3))
+            actionCount++
+        }
         builder.addAction(0, "停止", actionPending(ACTION_STOP, 4))
-        val style = Notification.MediaStyle().setShowActionsInCompactView(0, 1, 2)
+        actionCount++
+        val style = Notification.MediaStyle()
+            .setShowActionsInCompactView(*IntArray(minOf(3, actionCount)) { it })
         mediaSession?.let { style.setMediaSession(it.sessionToken) }
         builder.setStyle(style)
         return builder.build()

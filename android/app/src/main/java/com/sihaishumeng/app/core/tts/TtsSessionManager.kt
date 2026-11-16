@@ -136,6 +136,8 @@ object TtsSessionManager {
 
     fun playing(): Boolean = state == "playing"
     fun active(): Boolean = state != "idle"
+    /** M378：preparing 读数口——通知三态标签/文案用（起播窗口内按钮=暂停=取消启动） */
+    fun preparingForUi(): Boolean = state == "preparing"
 
     // Service 通知/MediaSession 读数口（首尾章自动裁剪 SKIP 键位）
     fun bookTitleForUi() = bookTitle
@@ -179,6 +181,11 @@ object TtsSessionManager {
         val gen = ++sessionGen // M377 代际捕获——取消启动/新会话顶代作废在途回调
         stopVoicePlayback() // ⭐审查修：会话重入（「朗读本段」重起播）先止旧语音——防旧评论外放+迟到回调污染新会话
         resetChapterRuntime()
+        // M378：起播即广播 start——web 模块 active 标志此前要等首个 para/chapter 事件，
+        // preparing 窗（拉章 1~20s）内页内暂停误走旧逐块通道=纯空转（「无法暂停」主诉
+        // 路径）；start 事件令 ttsSessionActive() 立真，页内暂停直达下方取消启动分支。
+        // 置于 resetChapterRuntime 之后：emit 尾部 maybePrefetch 此刻必被新守卫拦下。
+        emit("start")
         val voiceId = o.optString("voiceId")
         if (voiceId.isNotEmpty()) Engine.setVoice(voiceId)
         // ⭐前台服务必须在「用户手势时刻」拉起（本方法由桥 ttsStartSession 直调=App
@@ -251,16 +258,31 @@ object TtsSessionManager {
         }
     }
 
-    /** 桥 ttsSessionState：render 崩溃/跨页回来重同步快照（无会话="null"） */
+    /** 桥 ttsSessionState：render 崩溃/跨页回来重同步快照（无会话="null"）。
+     *  M378：preparing 窗（tocPos==-1）也回快照——重建后若回 "null"，web 的
+     *  sessionStartedRef 归零、该窗口暂停又落旧通道（「无法暂停」兜底补丁）。
+     *  preparing 快照带 preparing:true（web 恢复时按未暂停处理；老 web 忽略多余键）。 */
     fun stateJson(): String {
-        if (!active() || tocPos < 0 || tocPos >= toc.size) return "null"
-        return JSONObject()
-            .put("novelId", novelId)
-            .put("bookTitle", bookTitle)
-            .put("orderIndex", toc[tocPos])
-            .put("paraIndex", paraPos)
-            .put("playing", playing())
-            .toString()
+        if (active() && tocPos >= 0 && tocPos < toc.size) {
+            return JSONObject()
+                .put("novelId", novelId)
+                .put("bookTitle", bookTitle)
+                .put("orderIndex", toc[tocPos])
+                .put("paraIndex", paraPos)
+                .put("playing", playing())
+                .toString()
+        }
+        if (state == "preparing" && startOrderIndex >= 0) {
+            return JSONObject()
+                .put("novelId", novelId)
+                .put("bookTitle", bookTitle)
+                .put("orderIndex", startOrderIndex)
+                .put("paraIndex", 0)
+                .put("playing", false)
+                .put("preparing", true)
+                .toString()
+        }
+        return "null"
     }
 
     private fun pause() {
@@ -298,6 +320,12 @@ object TtsSessionManager {
             // 直接段推进——该段本就不读文字，不续读=不空转卡死）
             if (voiceStage == "voice" && voice != null) {
                 voice?.resumeX()
+            } else if (voiceStage == "voice") {
+                // M378：voice==null=WAV 裁剪下载窗（playVoice 后台线程下载中）——暂停
+                // 恰好落在窗内后恢复：不推进不朗读，等下载回调 startClip 起播（起播
+                // 后按下方 state 判断原位挂起/照播）。旧码掉进 else 直接 moveToNextPara
+                // =段推进朗读+下载回调照播=双声道+跳段。下载有界（WavSlicer 5s/10s
+                // 超时，失败回落远端原件照播）不会永久卡。
             } else if (chunkPos < chunks.size) {
                 speakCurrentChunk()
             } else {
@@ -849,6 +877,10 @@ object TtsSessionManager {
 
     /** 当前章读度过半即预取下一章（对冲 Doze 网络限制与慢网章间断读） */
     private fun maybePrefetch() {
+        // M378：起播/收摊窗（tocPos==-1、paras 空）不预取——emit("start") 等事件会把
+        // 垃圾拉章 toc[0] 发出去占掉 fetchingChapter 标志，openChapter 的真拉章被
+        // 静默吞、回调永不执行=会话永久卡 preparing（无看门狗无重试的死锁）。
+        if (tocPos < 0 || paras.isEmpty()) return
         if (nextChapterCache != null || fetchingChapter) return
         if (tocPos + 1 >= toc.size) return
         if (paraPos < paras.size / 2) return
