@@ -149,6 +149,14 @@ class ShellBridge(
     @JavascriptInterface
     fun ttsDebugTape(): String = TtsSessionManager.debugTape()
 
+    /** M380 web 决策灌注口：web 侧 toggle/重入闸/restore 的分支选择写入同一盘磁带
+     *  （带 "web:" 前缀）——再报暂停失效时磁带自带 web 决策流，终结「按压零痕迹」
+     *  盲区。老 web 无此调用=零影响（增量不在冻结列）。 */
+    @JavascriptInterface
+    fun ttsWebNote(msg: String) {
+        TtsSessionManager.webNote(msg)
+    }
+
 
     /** M249 初始同步：页面加载时键盘已开的罕见态（SPA 恢复/换页）。物理 px；0=键盘关。
      *  只读无动作面（与 versionName 同口径，三方页拿到的只是数字）。 */

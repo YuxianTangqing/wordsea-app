@@ -204,8 +204,16 @@ android {
         //   M377 取消语义误杀「读到章末、下章拉取中点暂停」的整会话）；③诊断磁带
         //   （最近 200 条会话/引擎流水，桥 ttsDebugTape+崩溃文件附带——再报障可直取
         //   真凶序列）。⭐同上：自更新链按 versionName 比较必须升名。
-        versionCode = 44
-        versionName = "2.0.29"
+        // M380 2.0.30 (45)：暂停失效第四次根治（2.0.29 磁带实证）——①start() 状态机
+        //   部分串行化主线程（binder 直跑与 posted 的 stop 竞争乱序=「stop 后声音又响」
+        //   +重入对代际误杀；main 队列=先 stop 收摊再 start，代际天然一致）；②
+        //   stopSession 补 sessionGen++（任何停止作废在途 start 的 ensure/拉章回调）+
+        //   ensure 回调补 state 门（双保险）；③hardStop 600ms 复验轮加代际门（新
+        //   speak 已入队=复验轮作废——2.0.29 磁带「必然静音」补刀误杀新会话 s2 根治，
+        //   OEM 忽略 stop 原场景照常补刀）；④桥 ttsWebNote（web 决策灌注进同一盘磁带，
+        //   终结「暂停按压零痕迹」盲区）。⭐同上：自更新链按 versionName 比较必须升名。
+        versionCode = 45
+        versionName = "2.0.30"
     }
 
     signingConfigs {

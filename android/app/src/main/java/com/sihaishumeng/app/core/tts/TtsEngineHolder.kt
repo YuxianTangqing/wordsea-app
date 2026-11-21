@@ -425,10 +425,17 @@ object TtsEngineHolder {
     fun hardStop() {
         main.post {
             speakGen++
+            // M380 N2 根治：捕获本次代际——600ms 复验轮前先核代际。任何新 speak()
+            // （新会话/新块入队）都会自增 speakGen——复验轮作废，防「必然静音」的
+            // 补刀误杀新会话（2.0.29 磁带实证：stop 时刻的 hardStop 复验轮 +600ms
+            // 时新会话的 s2 已在读、isSpeaking=true → 被误杀）。OEM 引擎忽略 stop()
+            // 的原场景（M379 主修）无新 speak、代际不变、照常补刀——语义完整保留。
+            val gen = speakGen
             val e = engine ?: return@post
             runCatching { e.stop() }
             runCatching { e.speak("", TextToSpeech.QUEUE_FLUSH, null, "hstop-$speakGen") }
             main.postDelayed({
+                if (gen != speakGen) return@postDelayed
                 val e2 = engine
                 if (e2 != null && runCatching { e2.isSpeaking }.getOrDefault(false)) {
                     speakGen++

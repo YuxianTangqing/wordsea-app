@@ -113,6 +113,15 @@ object TtsSessionManager {
     @Synchronized
     fun debugTape(): String = JSONArray(tape.toList()).toString()
 
+    /** M380 web 侧决策灌注口（桥 ttsWebNote）：toggle 走哪个分支/重入闸/restore 快照
+     *  结果等每个决策写进同一盘磁带——2.0.29 磁带「暂停按压零痕迹」（用户按压从未
+     *  抵达原生、磁带无从判断 web 侧发生了什么）盲区的终结器。再报障时磁带自带
+     *  web 决策流，不用再猜。 */
+    @Synchronized
+    fun webNote(msg: String) {
+        tapeLog("web:$msg")
+    }
+
     /** 落盘磁带（崩溃上报前调用）：追加写 cacheDir/tts-tape.log + 裁剪最近 400 行。
      *  返回文件绝对路径（失败/无 appContext 回 null 由调用方跳过）。 */
     @Synchronized
@@ -212,35 +221,46 @@ object TtsSessionManager {
         toc = (0 until tocArr.length()).map { tocArr.optInt(it) }
         contentToken = token
         startOrderIndex = o.optInt("orderIndex", toc.first())
-        state = "preparing"
-        val gen = ++sessionGen // M377 代际捕获——取消启动/新会话顶代作废在途回调
-        stopVoicePlayback() // ⭐审查修：会话重入（「朗读本段」重起播）先止旧语音——防旧评论外放+迟到回调污染新会话
-        resetChapterRuntime()
-        // M378：起播即广播 start——web 模块 active 标志此前要等首个 para/chapter 事件，
-        // preparing 窗（拉章 1~20s）内页内暂停误走旧逐块通道=纯空转（「无法暂停」主诉
-        // 路径）；start 事件令 ttsSessionActive() 立真，页内暂停直达下方取消启动分支。
-        // 置于 resetChapterRuntime 之后：emit 尾部 maybePrefetch 此刻必被新守卫拦下。
-        emit("start")
+        state = "preparing" // M380：置位留在 binder 线程——保 M378 preparing 快照零窗口
         val voiceId = o.optString("voiceId")
-        tapeLog("start novel=$novel oi=$startOrderIndex state=$state") // M379 磁带
-        if (voiceId.isNotEmpty()) Engine.setVoice(voiceId)
+        val paraIndex = o.optInt("paraIndex", 0)
         // ⭐前台服务必须在「用户手势时刻」拉起（本方法由桥 ttsStartSession 直调=App
         // 在前台窗内）：引擎初始化要 1-3s，若等 ensure 回调再拉、用户恰好按 Home，
         // Android 12+ 后台 startForegroundService 直接抛
         // ForegroundServiceStartNotAllowedException（对抗审查 A1/A6）。通知先占位
         // 「正在启动语音」，引擎就绪后由 onSessionChanged 刷新真状态。
         TtsPlaybackService.start(context)
-        Engine.ensure(appContext!!) { ok, reason ->
-            tapeLog("ensure ok=$ok reason=$reason state=$state") // M379 磁带
-            if (gen != sessionGen) return@ensure // M377：取消启动/新会话顶代——迟到就绪回调作废
-            if (!ok) {
-                emit("no-voice") { put("message", reason) }
-                state = "idle"
-                service?.onSessionChanged()
-                service?.stopSelfSafe()
-                return@ensure
+        // M380 N1 根治（串行化）：状态机部分改主线程执行——web 的重入对（朗读本段/
+        // 换书起播=先 ttsControl(stop) 再 ttsStartSession）与 control 的 main.post 严格
+        // 按到达序执行。旧码本段直跑 binder 线程=与 posted 的 stop 竞争乱序，且乱序后
+        // stopSession 的 sessionGen++ 会误杀重入对的 start 代际（或反而不杀=复活）——
+        // 2.0.29 磁带实证「stop 后 1~3s 声音又响」（stop 未作废在途 start 的 ensure
+        // 续链）。main 队列串行=先 stop 收摊再 start 起新会话，代际天然一致。
+        main.post {
+            val gen = ++sessionGen // M377 代际捕获——取消启动/新会话顶代作废在途回调
+            stopVoicePlayback() // ⭐审查修：会话重入（「朗读本段」重起播）先止旧语音——防旧评论外放+迟到回调污染新会话
+            resetChapterRuntime()
+            // M378：起播即广播 start——web 模块 active 标志此前要等首个 para/chapter 事件，
+            // preparing 窗（拉章 1~20s）内页内暂停误走旧逐块通道=纯空转（「无法暂停」主诉
+            // 路径）；start 事件令 ttsSessionActive() 立真，页内暂停直达下方取消启动分支。
+            // 置于 resetChapterRuntime 之后：emit 尾部 maybePrefetch 此刻必被新守卫拦下。
+            emit("start")
+            tapeLog("start novel=$novel oi=$startOrderIndex state=$state") // M379 磁带
+            if (voiceId.isNotEmpty()) Engine.setVoice(voiceId)
+            Engine.ensure(appContext!!) { ok, reason ->
+                tapeLog("ensure ok=$ok reason=$reason state=$state") // M379 磁带
+                // M377：取消启动/新会话顶代——迟到就绪回调作废；M380 补 state 门
+                // （stopSession 后 state=idle——A2 代际门之外的 belt，双保险）
+                if (gen != sessionGen || state == "idle") return@ensure
+                if (!ok) {
+                    emit("no-voice") { put("message", reason) }
+                    state = "idle"
+                    service?.onSessionChanged()
+                    service?.stopSelfSafe()
+                    return@ensure
+                }
+                openChapter(startOrderIndex, paraIndex)
             }
-            openChapter(startOrderIndex, o.optInt("paraIndex", 0))
         }
         return true
     }
@@ -388,6 +408,11 @@ object TtsSessionManager {
 
     private fun stopSession(reason: String) {
         tapeLog("stop:enter reason=$reason state=$state") // M379 磁带
+        // M380 N1 根治二道门：任何停止都作废在途 start 的 ensure/拉章回调——旧码只有
+        // M377 取消启动分支 bump，stopSession 不 bump=「点停止后 1~3s 声音又响」的
+        // 直接根因（start 的 ensure 续链代际校验形同虚设，2.0.29 磁带实证）。置于
+        // idle 早退之前：idle 态停止也要作废仍在途/已排队的 start 回调（乱序窗兜底）。
+        sessionGen++
         if (state == "idle") return
         settleActiveSeconds()
         reportProgress(final = true)
