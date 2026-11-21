@@ -184,21 +184,24 @@ class TtsPlaybackService : Service() {
         // 加；tocPos==-1 的 preparing/收摊窗只有 2 键），硬编码 (0,1,2) 在 2 键时下标
         // 越界=Android 15/16 严格校验下 RemoteServiceException 崩（2.0.27 vivo/API36
         // 上报「setShowActionsInCompactView: action 2 out of bounds (max 1)」实锤）。
+        // M381：action 图标此前恒 0=按键点击区在但不可见（站主「点了有效果就是看不到」）
+        // ——四键补 vector 图标（ic_notif_*；暂停/播放随态换图标，与 title 分支同条件）。
         var actionCount = 0
         if (mgr.hasPrevForUi()) {
-            builder.addAction(0, "上一章", actionPending(ACTION_PREV, 1))
+            builder.addAction(R.drawable.ic_notif_prev, "上一章", actionPending(ACTION_PREV, 1))
             actionCount++
         }
         builder.addAction(
-            0, if (playing || preparing) "暂停" else "播放",
+            if (playing || preparing) R.drawable.ic_notif_pause else R.drawable.ic_notif_play,
+            if (playing || preparing) "暂停" else "播放",
             actionPending(if (playing || preparing) ACTION_PAUSE else ACTION_RESUME, 2)
         )
         actionCount++
         if (mgr.hasNextForUi()) {
-            builder.addAction(0, "下一章", actionPending(ACTION_NEXT, 3))
+            builder.addAction(R.drawable.ic_notif_next, "下一章", actionPending(ACTION_NEXT, 3))
             actionCount++
         }
-        builder.addAction(0, "停止", actionPending(ACTION_STOP, 4))
+        builder.addAction(R.drawable.ic_notif_stop, "停止", actionPending(ACTION_STOP, 4))
         actionCount++
         val style = Notification.MediaStyle()
             .setShowActionsInCompactView(*IntArray(minOf(3, actionCount)) { it })

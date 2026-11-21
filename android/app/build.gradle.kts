@@ -212,8 +212,13 @@ android {
         //   speak 已入队=复验轮作废——2.0.29 磁带「必然静音」补刀误杀新会话 s2 根治，
         //   OEM 忽略 stop 原场景照常补刀）；④桥 ttsWebNote（web 决策灌注进同一盘磁带，
         //   终结「暂停按压零痕迹」盲区）。⭐同上：自更新链按 versionName 比较必须升名。
-        versionCode = 45
-        versionName = "2.0.30"
+        // M381 2.0.31 (46)：①通知四键补图标（2.0.30 前 addAction icon=0=按键点击区在
+        //   但不可见——站主「点了有效果就是看不到」；5 个 ic_notif_* vector，暂停/播放
+        //   随态换图标）；②随 web 2.0.35 同批：暂停/停止发送层根治在 web 侧（桥方法
+        //   必须挂宿主调用——脱宿主调用=Java bridge TypeError 被吞，本仓无改动）。
+        //   ⭐同上：自更新链按 versionName 比较必须升名。
+        versionCode = 46
+        versionName = "2.0.31"
     }
 
     signingConfigs {

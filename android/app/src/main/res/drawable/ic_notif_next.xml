@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- M381 通知栏听书「下一章」键图标（同 ic_tts_notification 范式；Material skip_next 几何）。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6,18l8.5,-6L6,6v12z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M16,6v12h2V6h-2z" />
+</vector>
