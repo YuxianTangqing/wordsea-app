@@ -3,6 +3,7 @@ package com.sihaishumeng.app.core
 import android.content.Context
 import android.os.Build
 import com.sihaishumeng.app.core.api.ApiClient
+import com.sihaishumeng.app.core.tts.TtsSessionManager // M379 诊断磁带（崩溃文件附带）
 import org.json.JSONObject
 import java.io.File
 import java.io.PrintWriter
@@ -96,6 +97,11 @@ object CrashHandler {
         val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         val sw = StringWriter()
         e.printStackTrace(PrintWriter(sw))
+        // M379：听书诊断磁带（暂停失效定位器）——崩溃文件附带最近 200 条会话/引擎流水
+        val tapePath = TtsSessionManager.persistTape()
+        val tapeText = tapePath?.let { p ->
+            runCatching { File(p).readText() }.getOrDefault("（磁带不可读）")
+        } ?: ""
         val body = buildString {
             appendLine("时间: ${fmt.format(Date())}")
             appendLine("线程: ${t.name}")
@@ -104,6 +110,11 @@ object CrashHandler {
             appendLine("机型: ${Build.MANUFACTURER} ${Build.MODEL}")
             appendLine("---- 异常栈 ----")
             append(sw.toString())
+            if (tapeText.isNotBlank()) {
+                appendLine()
+                appendLine("---- 听书磁带 ----")
+                append(tapeText)
+            }
         }
         File(dir, "crash-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.txt")
             .writeText(body)

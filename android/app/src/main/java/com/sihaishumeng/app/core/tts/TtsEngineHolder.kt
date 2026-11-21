@@ -417,6 +417,28 @@ object TtsEngineHolder {
         }
     }
 
+    /** M379「必然静音」（暂停失效第三次报障的引擎层根治）：部分 OEM 引擎（vivo 系实录）
+     *  忽略 stop()——stop + 空串 QUEUE_FLUSH 强制清空合成队列（经典绕过）+ 600ms 复验
+     *  补一轮。直调 e.speak 不经 speak() 的推进机器（不建 poll/估算定时器）；空串的
+     *  done/onStop 事件被会话 curUtterId 门自然忽略；isSpeaking 谎报引擎（站主设备
+     *  双欠奉前科）上复验轮只是无害重复。 */
+    fun hardStop() {
+        main.post {
+            speakGen++
+            val e = engine ?: return@post
+            runCatching { e.stop() }
+            runCatching { e.speak("", TextToSpeech.QUEUE_FLUSH, null, "hstop-$speakGen") }
+            main.postDelayed({
+                val e2 = engine
+                if (e2 != null && runCatching { e2.isSpeaking }.getOrDefault(false)) {
+                    speakGen++
+                    runCatching { e2.stop() }
+                    runCatching { e2.speak("", TextToSpeech.QUEUE_FLUSH, null, "hstop2-$speakGen") }
+                }
+            }, 600)
+        }
+    }
+
     /** 进程级关停（实际无人调——Activity 销毁不杀引擎：会话期间进程存活） */
     fun shutdown() {
         main.post {

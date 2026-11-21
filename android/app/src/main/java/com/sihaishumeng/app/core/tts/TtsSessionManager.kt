@@ -95,6 +95,40 @@ object TtsSessionManager {
     // 拉章回调按代作废，防旧会话迟到回调复活/污染新会话（M362 voiceTicket 同款）
     private var sessionGen = 0
 
+    /** M379：本会话已读到过内容（beginChapter 置位/resetChapterRuntime 清位）——preparing
+     *  窗暂停的语义判别：起播窗（false）=M377「取消启动」；章边界拉取窗（true，读到第 N
+     *  章末尾、下章拉取 1~3s 内点暂停）=挂起待续（旧码误判取消=整会话被干掉）。 */
+    private var hasPlayedOnce = false
+
+    // ── M379 诊断磁带（暂停失效第三次报障的定位器）──
+    // ⚠️ 同步铁律：start() 由桥直调跑 binder 线程（存量松动）——磁带读写一律 @Synchronized
+    //   防跨线程并发污染 ArrayDeque
+    private val tape = ArrayDeque<String>()
+    @Synchronized
+    private fun tapeLog(msg: String) {
+        tape.addLast("[${System.currentTimeMillis() % 100_000_000}] $msg")
+        if (tape.size > 200) tape.removeFirst()
+    }
+    /** 桥 ttsDebugTape 读数口（JSON 数组；崩溃上报附送——2.0.29 若仍报暂停失效可直取真凶序列） */
+    @Synchronized
+    fun debugTape(): String = JSONArray(tape.toList()).toString()
+
+    /** 落盘磁带（崩溃上报前调用）：追加写 cacheDir/tts-tape.log + 裁剪最近 400 行。
+     *  返回文件绝对路径（失败/无 appContext 回 null 由调用方跳过）。 */
+    @Synchronized
+    fun persistTape(): String? {
+        val ctx = appContext ?: return null
+        return try {
+            val f = java.io.File(ctx.cacheDir, "tts-tape.log")
+            f.appendText(tape.joinToString("\n") + "\n")
+            val lines = f.readLines()
+            if (lines.size > 400) f.writeText(lines.takeLast(400).joinToString("\n") + "\n")
+            f.absolutePath
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // M362 段评语音插播态
     private var voice: VoiceClipPlayer? = null
     private var voiceLocalFile: String? = null // 五十五批 剪裁临时文件（急停/换代清场用）
@@ -113,6 +147,7 @@ object TtsSessionManager {
     /** 引擎块事件口（id 对账+state 门；会话空闲期事件零副作用）——声明先于下方
      *  init 注册（Kotlin 属性与 init 块按声明顺序执行） */
     private val utterance: (String, String) -> Unit = { kind: String, id: String ->
+        tapeLog("utter:$kind id=$id cur=$curUtterId state=$state") // M379 磁带
         if (curUtterId != null && id == curUtterId && state == "playing") {
             when (kind) {
                 "done" -> {
@@ -187,6 +222,7 @@ object TtsSessionManager {
         // 置于 resetChapterRuntime 之后：emit 尾部 maybePrefetch 此刻必被新守卫拦下。
         emit("start")
         val voiceId = o.optString("voiceId")
+        tapeLog("start novel=$novel oi=$startOrderIndex state=$state") // M379 磁带
         if (voiceId.isNotEmpty()) Engine.setVoice(voiceId)
         // ⭐前台服务必须在「用户手势时刻」拉起（本方法由桥 ttsStartSession 直调=App
         // 在前台窗内）：引擎初始化要 1-3s，若等 ensure 回调再拉、用户恰好按 Home，
@@ -195,6 +231,7 @@ object TtsSessionManager {
         // 「正在启动语音」，引擎就绪后由 onSessionChanged 刷新真状态。
         TtsPlaybackService.start(context)
         Engine.ensure(appContext!!) { ok, reason ->
+            tapeLog("ensure ok=$ok reason=$reason state=$state") // M379 磁带
             if (gen != sessionGen) return@ensure // M377：取消启动/新会话顶代——迟到就绪回调作废
             if (!ok) {
                 emit("no-voice") { put("message", reason) }
@@ -222,6 +259,7 @@ object TtsSessionManager {
         } catch (_: Exception) {
             return
         }
+        tapeLog("control:${a.optString("a")} state=$state tocPos=$tocPos played=$hasPlayedOnce") // M379 磁带
         when (a.optString("a")) {
             "pause" -> pause()
             "resume" -> resume()
@@ -286,12 +324,25 @@ object TtsSessionManager {
     }
 
     private fun pause() {
+        tapeLog("pause:enter state=$state") // M379 磁带
         if (state == "playing") {
             settleActiveSeconds()
             state = "paused"
             curUtterId = null
             voice?.pauseX() // M362 语音中原位暂停（看门狗挂起；resume 续播不重头）
-            Engine.stop()
+            Engine.hardStop() // M379：必然静音（OEM 引擎忽略 stop() 的根治——第三次报障引擎层）
+            emitPaused()
+            service?.onSessionChanged()
+        } else if (state == "preparing" && hasPlayedOnce) {
+            // M379 章边界拉取窗暂停=挂起（旧码走 M377 取消分支=整会话被干掉——读到第 N
+            // 章末尾、下章拉取 1~3s 内点暂停被误判「取消启动」）。挂起：装载完成后
+            // beginChapter 按 paused 挂起不朗读；resume 三分支天然续（chunks 空→
+            // moveToNextPara 自边界章起读）。不 sessionGen++（在途拉章回调有效）、
+            // 不 reset、不 stopSelf（会话存活=「已暂停」通知）。
+            state = "paused"
+            curUtterId = null
+            voice?.pauseX()
+            Engine.hardStop()
             emitPaused()
             service?.onSessionChanged()
         } else if (state == "preparing") {
@@ -303,7 +354,7 @@ object TtsSessionManager {
             stopVoicePlayback() // M362 停机五路之一：取消启动同收摊
             resetChapterRuntime()
             nextChapterCache = null
-            Engine.stop()
+            Engine.hardStop() // M379：必然静音（收摊同硬停）
             emit("cancelled")
             service?.onSessionChanged()
             service?.stopSelfSafe()
@@ -311,6 +362,7 @@ object TtsSessionManager {
     }
 
     private fun resume() {
+        tapeLog("resume:enter state=$state") // M379 磁带
         if (state == "paused") {
             state = "playing"
             activeSince = System.currentTimeMillis()
@@ -335,6 +387,7 @@ object TtsSessionManager {
     }
 
     private fun stopSession(reason: String) {
+        tapeLog("stop:enter reason=$reason state=$state") // M379 磁带
         if (state == "idle") return
         settleActiveSeconds()
         reportProgress(final = true)
@@ -343,7 +396,7 @@ object TtsSessionManager {
         stopVoicePlayback() // M362 停机五路之一：语音残响必止
         resetChapterRuntime()
         nextChapterCache = null
-        Engine.stop()
+        Engine.hardStop() // M379：必然静音（收摊同硬停）
         emit("stopped") { put("reason", reason) }
         service?.onSessionChanged()
         service?.stopSelfSafe()
@@ -377,11 +430,13 @@ object TtsSessionManager {
         tocPos = -1
         fetchingChapter = false
         voicePlayedPara = -1
+        hasPlayedOnce = false // M379：新会话/收摊回起播窗语义（preparing 暂停=取消启动）
     }
 
     // ══════════ 章节拉取与推进 ══════════
 
     private fun openChapter(orderIndex: Int, paraStart: Int) {
+        tapeLog("openChapter oi=$orderIndex state=$state") // M379 磁带
         val idx = toc.indexOf(orderIndex)
         if (idx < 0) { // toc 窗口外（书章数据变了）——收摊如实上报
             emit("error") { put("message", "章节目录已变化，请刷新页面后重试") }
@@ -414,6 +469,7 @@ object TtsSessionManager {
             ApiClient.getJson(segmentsPath(novelId, orderIndex, contentToken)) { code, json ->
                 main.post {
                     fetchingChapter = false
+                    tapeLog("fetchChapter oi=$orderIndex code=$code state=$state") // M379 磁带
                     // M377：拉章期间被停止/取消（state=idle）——迟到响应不得复活会话
                     // （「点停止后声音又响」存量隐雷同根：旧码拉章期点停止后响应回来会
                     // 直接 beginChapter 复活），丢弃；flag 已复位新会话可再拉
@@ -528,6 +584,19 @@ object TtsSessionManager {
         // 推进语义时入口补偿缺失）
         paraPos = paraStart.coerceIn(0, (list.size - 1).coerceAtLeast(0)) - 1
         voicePlayedPara = -1
+        hasPlayedOnce = true // M379：本会话已读到过内容（起播窗语义自此关闭）
+        tapeLog("beginChapter oi=${toc[tocPos]} state=$state paras=${list.size}") // M379 磁带
+        if (state == "paused") {
+            // M379 章边界拉取窗暂停=挂起：装载完成不置 playing、不起心跳、不 moveToNextPara
+            // （openChapter 回调门只拦 idle 不拦 paused——天然放行）。resume 三分支天然续
+            // （chunks 空→moveToNextPara 自 paraStart 起读）。
+            service?.onSessionChanged()
+            emit("chapter") {
+                put("orderIndex", toc[tocPos])
+                put("chapterTitle", title)
+            }
+            return
+        }
         state = "playing"
         activeSince = System.currentTimeMillis()
         startHeartbeat()
@@ -730,6 +799,7 @@ object TtsSessionManager {
         val id = "s${++seq}"
         curUtterId = id
         speakAt = System.currentTimeMillis()
+        tapeLog("speak id=$id len=${text.length} state=$state") // M379 磁带
         val ok = Engine.speak(id, text, rate)
         if (!ok) { // 引擎未就绪（reinit 中）——短暂等待自愈一次
             main.postDelayed({ if (state == "playing" && curUtterId == id) speakCurrentChunk() }, 800)
@@ -853,7 +923,7 @@ object TtsSessionManager {
                         settleActiveSeconds()
                         state = "paused"
                         voice?.pauseX() // M362 停机五路之一：auth 暂停（语音原位待续）
-                        Engine.stop()
+                        Engine.hardStop() // M379：必然静音（auth 暂停同硬停）
                         emit("auth")
                         service?.onSessionChanged()
                     }

@@ -198,8 +198,14 @@ android {
         //   垃圾拉章吞真拉章卡死）；⑤resume 裁剪下载窗分支（防双声道+跳段）；⑥
         //   stateJson preparing 快照+无条件冷拉起收摊（防僵尸通知）。
         //   ⭐同上：自更新链按 versionName 比较必须升名。
-        versionCode = 43
-        versionName = "2.0.28"
+        // M379 2.0.29 (44)：暂停失效第三次根治——①Engine.hardStop「必然静音」（stop+
+        //   空串 QUEUE_FLUSH 强制清队列+600ms 复验补一轮；OEM 引擎忽略 stop() 的经典
+        //   绕过，vivo 系实录）；②章边界拉取窗暂停=挂起（hasPlayedOnce 判别——旧码
+        //   M377 取消语义误杀「读到章末、下章拉取中点暂停」的整会话）；③诊断磁带
+        //   （最近 200 条会话/引擎流水，桥 ttsDebugTape+崩溃文件附带——再报障可直取
+        //   真凶序列）。⭐同上：自更新链按 versionName 比较必须升名。
+        versionCode = 44
+        versionName = "2.0.29"
     }
 
     signingConfigs {

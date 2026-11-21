@@ -144,6 +144,11 @@ class ShellBridge(
     @JavascriptInterface
     fun ttsSetVoice(voiceId: String): Boolean = TtsEngineHolder.setVoice(voiceId)
 
+    /** M379 诊断磁带读数口（JSON 数组——最近 200 条会话/引擎流水；暂停失效第三次
+     *  报障的定位器，web 阅读器设置面板「听书诊断」复制给站长用；增量不在冻结列）。 */
+    @JavascriptInterface
+    fun ttsDebugTape(): String = TtsSessionManager.debugTape()
+
 
     /** M249 初始同步：页面加载时键盘已开的罕见态（SPA 恢复/换页）。物理 px；0=键盘关。
      *  只读无动作面（与 versionName 同口径，三方页拿到的只是数字）。 */
