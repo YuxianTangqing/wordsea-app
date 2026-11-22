@@ -44,6 +44,7 @@ import com.sihaishumeng.app.core.SiteConfig
 import com.sihaishumeng.app.core.bridge.MicRecHost
 import com.sihaishumeng.app.core.bridge.ShellBridge
 import com.sihaishumeng.app.core.device.KeyboardInsetController
+import com.sihaishumeng.app.core.download.ImageSaver
 import com.sihaishumeng.app.core.flip.CurlPageView
 import com.sihaishumeng.app.core.flip.FlipController
 import com.sihaishumeng.app.core.flip.FlipInterceptorLayout
@@ -259,6 +260,13 @@ class MainActivity : AppCompatActivity() {
     // req==null 与 onPermissionRequestCanceled 两处 Log.w（2.0.18 竞态定位留证）。
     private var pendingPermissionRequest: PermissionRequest? = null
     private var pendingMicCallback: String? = null
+
+    // M382 长按存图：≤28 存储权限运行时请求（WRITE_EXTERNAL_STORAGE，
+    // manifest maxSdkVersion=28 声明；29+ 走 MediaStore 零权限不经此）
+    private val saveImagePermLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            ImageSaver.onPermissionResult(this, granted)
+        }
     private val micPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             // 五十六批 三路共用 launcher：单飞闸复位+start() 阻塞等待者结算（先于预检/
@@ -417,6 +425,12 @@ class MainActivity : AppCompatActivity() {
         if (this::webView.isInitialized) webView.evaluateJavascript(js, null)
     }
 
+    /** M382 长按图片保存：桥面 __wsShell.saveImage 转来（已切主线程）。权限请求/
+     *  下载/入库/结果 toast 全内聚在 ImageSaver；web 侧只对受理失败（false）提示。 */
+    private fun handleSaveImage(url: String, fileName: String?) {
+        ImageSaver.save(this, url, fileName, saveImagePermLauncher)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashHandler.install(this) // M376：全局崩溃兜底（落盘）；必须最先挂
@@ -561,6 +575,7 @@ class MainActivity : AppCompatActivity() {
                 ::handleEnsureMicPermission,
                 ::handleMicProbe,
                 micRecHost, // 五十五批 原生录音链宿主面
+                ::handleSaveImage, // M382 长按图片保存
             ),
             "__wsShell",
         )

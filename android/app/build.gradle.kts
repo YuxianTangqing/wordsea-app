@@ -217,8 +217,13 @@ android {
         //   随态换图标）；②随 web 2.0.35 同批：暂停/停止发送层根治在 web 侧（桥方法
         //   必须挂宿主调用——脱宿主调用=Java bridge TypeError 被吞，本仓无改动）。
         //   ⭐同上：自更新链按 versionName 比较必须升名。
-        versionCode = 46
-        versionName = "2.0.31"
+        // M382 2.0.32 (47)：长按图片保存（站主报障「App 内无法像手机浏览器一样长按
+        //   保存」）——桥 saveImage（host 白名单）+ ImageSaver（29+ MediaStore 零权限
+        //   Pictures/四海书盟；≤28 WRITE_EXTERNAL_STORAGE 运行时授权+DownloadManager
+        //   公共 Pictures）+ manifest 老权限 maxSdkVersion=28 声明；web 侧长按两键菜单
+        //   随 web 2.0.36 同批。⭐同上：自更新链按 versionName 比较必须升名。
+        versionCode = 47
+        versionName = "2.0.32"
     }
 
     signingConfigs {

@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
 import android.webkit.JavascriptInterface
+import com.sihaishumeng.app.core.SiteConfig
 import com.sihaishumeng.app.core.device.KeyboardInsetController
 import com.sihaishumeng.app.core.tts.TtsEngineHolder
 import com.sihaishumeng.app.core.tts.TtsSessionManager
@@ -56,6 +57,9 @@ class ShellBridge(
      *  实现须线程安全）。web 侧 typeof 特征探测（旧壳无 micRec* 方法=跳过走
      *  getUserMedia 原路=双向部署安全）。 */
     private val micRec: MicRecHost,
+    /** M382 长按图片保存（web 两键菜单「保存图片」→ 宿主 handleSaveImage）。
+     *  ⚠️ 同上命名铁律：参数名与方法 fun saveImage 严禁同名。 */
+    private val onSaveImage: (String, String?) -> Unit,
 ) {
     @JavascriptInterface
     fun versionName(): String = try {
@@ -155,6 +159,27 @@ class ShellBridge(
     @JavascriptInterface
     fun ttsWebNote(msg: String) {
         TtsSessionManager.webNote(msg)
+    }
+
+    /** M382 保存图片（站主报障「App 内无法长按保存」——web 长按菜单经此口）。
+     *  host 白名单校验（SiteConfig.SITE_HOSTS，SelfUpdateController 同口径）——
+     *  非法 URL 返 false（web 如实 toast）；通过则切主线程转发宿主（权限/下载/
+     *  结果 toast 全在宿主侧 ImageSaver）。true=已受理（非「已保存」——异步结果
+     *  由宿主 toast 汇报，web 侧只对 false 提示，双端不重不漏）。 */
+    @JavascriptInterface
+    fun saveImage(url: String, fileName: String?): Boolean {
+        return try {
+            val uri = android.net.Uri.parse(url)
+            if (uri.host?.lowercase() !in SiteConfig.SITE_HOSTS) {
+                false
+            } else {
+                activity.runOnUiThread { onSaveImage(url, fileName) }
+                true
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("SaveImage", "saveImage", e)
+            false
+        }
     }
 
 

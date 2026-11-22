@@ -15,5 +15,9 @@
     <!-- M-APP15 壳内自更新 -->
     <string name="download_already_latest">已是最新版本 v%1$s</string>
     <string name="download_in_progress">新版本正在下载，完成后会自动弹出安装</string>
+    <!-- M382 长按图片保存 -->
+    <string name="image_saved">已保存到相册</string>
+    <string name="image_save_failed">保存失败，请重试</string>
+    <string name="image_save_permission_denied">未授权存储权限，无法保存图片</string>
     <!-- 批④W：批③ 原生登录屏 20 条 login_*/bili_auth_title 随 LoginActivity 退役删除 -->
 </resources>
