@@ -9,6 +9,9 @@ import com.sihaishumeng.app.core.SiteConfig
 import com.sihaishumeng.app.core.device.KeyboardInsetController
 import com.sihaishumeng.app.core.tts.TtsEngineHolder
 import com.sihaishumeng.app.core.tts.TtsSessionManager
+import com.sihaishumeng.app.social.QqAuth
+import com.sihaishumeng.app.social.WechatAuth
+import org.json.JSONObject
 
 /**
  * __wsShell JS 桥（M-APP15 版本桥起家；M247 音量键/M248 TTS/M249 键盘通道随批；
@@ -60,6 +63,12 @@ class ShellBridge(
     /** M382 长按图片保存（web 两键菜单「保存图片」→ 宿主 handleSaveImage）。
      *  ⚠️ 同上命名铁律：参数名与方法 fun saveImage 严禁同名。 */
     private val onSaveImage: (String, String?) -> Unit,
+    /** M387 微信分享卡片（web ShareSheet 微信渠道壳内桥 → 宿主 handleShareToWechat；
+     *  已切主线程）。⚠️ 同上命名铁律：参数名与方法 fun shareToWechat 严禁同名。 */
+    private val onShareToWechat: (String, String, String, String) -> Unit,
+    /** M387 QQ 分享卡片（web ShareSheet QQ/QQ空间渠道壳内桥 → 宿主 handleShareToQq；
+     *  已切主线程）。⚠️ 同上命名铁律：参数名与方法 fun shareToQq 严禁同名。 */
+    private val onShareToQq: (String, String, String, String, String) -> Unit,
 ) {
     @JavascriptInterface
     fun versionName(): String = try {
@@ -181,6 +190,65 @@ class ShellBridge(
             false
         }
     }
+
+    /** M387 微信分享卡片桥（web ShareSheet 微信渠道壳内改走此处——SDK 卡片消息不受
+     *  微信新域名观察期限制）。payload={title,desc,url,thumbUrl}；url/thumbUrl host
+     *  白名单（saveImage 同口径——防任意 URL 分享）；未装微信返 false（web toast
+     *  兜底）。true=已受理（缩略图异步下载+sendReq 在 WechatShare 内）。 */
+    @JavascriptInterface
+    fun shareToWechat(payloadJson: String): Boolean {
+        return try {
+            val j = JSONObject(payloadJson)
+            val url = j.optString("url", "")
+            val thumbUrl = j.optString("thumbUrl", "")
+            if (!hostOk(url) || (thumbUrl.isNotBlank() && !hostOk(thumbUrl))) {
+                false
+            } else if (!WechatAuth.ensure(activity).isWXAppInstalled) {
+                false
+            } else {
+                activity.runOnUiThread {
+                    onShareToWechat(j.optString("title", ""), j.optString("desc", ""), url, thumbUrl)
+                }
+                true
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ShareBridge", "shareToWechat", e)
+            false
+        }
+    }
+
+    /** M387 QQ 分享卡片桥。payload={title,summary,url,imageUrl,target:'qq'|'qzone'}；
+     *  url/imageUrl host 白名单；未装 QQ 返 false。 */
+    @JavascriptInterface
+    fun shareToQq(payloadJson: String): Boolean {
+        return try {
+            val j = JSONObject(payloadJson)
+            val url = j.optString("url", "")
+            val imageUrl = j.optString("imageUrl", "")
+            if (!hostOk(url) || (imageUrl.isNotBlank() && !hostOk(imageUrl))) {
+                false
+            } else if (!QqAuth.ensure(activity).isQQInstalled(activity)) {
+                false
+            } else {
+                activity.runOnUiThread {
+                    onShareToQq(j.optString("title", ""), j.optString("summary", ""), url, imageUrl, j.optString("target", "qq"))
+                }
+                true
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ShareBridge", "shareToQq", e)
+            false
+        }
+    }
+
+    /** 分享/存图 URL 白名单（saveImage 同口径）：仅 http(s)+SITE_HOSTS */
+    private fun hostOk(url: String): Boolean =
+        try {
+            val u = android.net.Uri.parse(url)
+            (u.scheme == "https" || u.scheme == "http") && u.host?.lowercase() in SiteConfig.SITE_HOSTS
+        } catch (e: Exception) {
+            false
+        }
 
 
     /** M249 初始同步：页面加载时键盘已开的罕见态（SPA 恢复/换页）。物理 px；0=键盘关。

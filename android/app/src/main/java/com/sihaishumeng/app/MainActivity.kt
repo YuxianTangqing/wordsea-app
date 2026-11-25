@@ -53,7 +53,9 @@ import com.sihaishumeng.app.core.tts.TtsEngineHolder
 import com.sihaishumeng.app.core.tts.WebChannel
 import com.sihaishumeng.app.core.update.SelfUpdateController
 import com.sihaishumeng.app.core.web.WebViewRouter
+import com.sihaishumeng.app.social.QqShare
 import com.sihaishumeng.app.social.SocialAuthController
+import com.sihaishumeng.app.social.WechatShare
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.CountDownLatch
@@ -431,6 +433,17 @@ class MainActivity : AppCompatActivity() {
         ImageSaver.save(this, url, fileName, saveImagePermLauncher)
     }
 
+    /** M387 微信分享卡片：桥面 __wsShell.shareToWechat 转来（已切主线程，白名单已过）。
+     *  缩略图下载/压缩/sendReq 全内聚在 WechatShare。 */
+    private fun handleShareToWechat(title: String, desc: String, url: String, thumbUrl: String) {
+        WechatShare.share(this, title, desc, url, thumbUrl)
+    }
+
+    /** M387 QQ 分享卡片：桥面 __wsShell.shareToQq 转来（已切主线程，白名单已过）。 */
+    private fun handleShareToQq(title: String, summary: String, url: String, imageUrl: String, target: String) {
+        QqShare.share(this, title, summary, url, imageUrl, target)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashHandler.install(this) // M376：全局崩溃兜底（落盘）；必须最先挂
@@ -576,6 +589,8 @@ class MainActivity : AppCompatActivity() {
                 ::handleMicProbe,
                 micRecHost, // 五十五批 原生录音链宿主面
                 ::handleSaveImage, // M382 长按图片保存
+                ::handleShareToWechat, // M387 微信分享卡片
+                ::handleShareToQq, // M387 QQ 分享卡片
             ),
             "__wsShell",
         )

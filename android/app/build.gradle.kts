@@ -222,8 +222,14 @@ android {
         //   Pictures/四海书盟；≤28 WRITE_EXTERNAL_STORAGE 运行时授权+DownloadManager
         //   公共 Pictures）+ manifest 老权限 maxSdkVersion=28 声明；web 侧长按两键菜单
         //   随 web 2.0.36 同批。⭐同上：自更新链按 versionName 比较必须升名。
-        versionCode = 47
-        versionName = "2.0.32"
+        // M387 2.0.33 (48)：微信/QQ 分享卡片（站主报障「web 端粘贴链接不出卡」=微信
+        //   新域名观察期；App SDK 卡片消息不受限——息壤同款机制）。桥 shareToWechat/
+        //   shareToQq（host 白名单+未装检测返 false）+ WechatShare（Webpage 消息+缩略
+        //   图后台下载压缩≤32KB）+ QqShare（shareToQQ/shareToQzone 网络图自抓）+
+        //   WXEntryActivity 收 SendMessageToWX.Resp 静默；web 侧随 web 2.0.41 同批
+        //   （特征探测老 APK 无桥回落复制）。⭐同上：自更新链按 versionName 比较必须升名。
+        versionCode = 48
+        versionName = "2.0.33"
     }
 
     signingConfigs {

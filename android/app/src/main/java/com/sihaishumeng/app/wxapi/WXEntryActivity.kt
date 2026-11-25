@@ -8,6 +8,7 @@ import com.sihaishumeng.app.social.WechatAuth
 import com.tencent.mm.opensdk.modelbase.BaseReq
 import com.tencent.mm.opensdk.modelbase.BaseResp
 import com.tencent.mm.opensdk.modelmsg.SendAuth
+import com.tencent.mm.opensdk.modelmsg.SendMessageToWX
 import com.tencent.mm.opensdk.openapi.IWXAPI
 import com.tencent.mm.opensdk.openapi.IWXAPIEventHandler
 import com.tencent.mm.opensdk.openapi.WXAPIFactory
@@ -39,6 +40,9 @@ class WXEntryActivity : Activity(), IWXAPIEventHandler {
 
     override fun onResp(resp: BaseResp) {
         if (resp is SendAuth.Resp) WechatAuth.handleResp(resp)
+        else if (resp is SendMessageToWX.Resp) {
+            // M387 分享卡片回执：已发送/取消都由微信客户端自行反馈，App 侧静默
+        }
         finish()
     }
 
